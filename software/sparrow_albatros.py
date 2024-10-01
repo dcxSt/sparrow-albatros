@@ -122,3 +122,107 @@ class SparrowAlbatros():
         x = v[0::2]
         y = v[1::2]
         return x, y
+
+class AlbatrosDigitizer(SparrowAlbatros):
+    def __init__(self, cfpga, fpgfile=None, adc_clk=500., logger=None):
+        """
+        Constructor binds logger, as well as parent attributes (cfpga, etc.). 
+        """
+        super().__init__(cfpga, fpgfile, adc_clk)
+        self.logger = logger # TODO: sort out logging, default logger?
+        return 
+
+    def setup_and_tune(self, ref_clock, fftshift, acc_len, dest_ip, 
+            dest_prt, spectra_per_packet, bytes_per_spectrum):
+        """
+        Setup the FPGA firmware by tuning the input registers.
+        Perform sanity check on each after setting the value. 
+        - Assumes fpga has been programmed and cfpga is running. 
+        - Sets values in FPGA's programmable Registers and BRAMs. 
+        - Basic health checks of FPGA output values, e.g. overflows. 
+
+        :param ref_clock: Reference clock in MHz. 
+        :type ref_clock: float (int?)
+
+        :param fftshift: Register Value. FFT shift schedule, bits 1/0 for on/off.
+        :type fftshift: int
+        :param acc_len: RV. Number of spectra accumulated to integrate correlations. 
+        :type acc_len: int
+        :param dest_ip: RV. IP address to send packets to. Turn into int before writing. 
+        :type dest_ip: str
+        :param dest_prt: RV. Packet destination port number. 
+        :type dest_prt: int
+        :param spectra_per_packet: RV. Number of specs to write in each UDP packet. 
+        :type spectra_per_packet: int
+        :param bytes_per_spectrum: RV. Number of bytes in one, quantized spec. 
+        :type bytes_per_spectrum: int
+
+        JF reccomends using netcat for writing packets to file for test. 
+        """
+        # Assume bitstream already uploaded, data in self.cfpga
+        # Assume ADCs already initialized including that get_system_information...
+        # Inherit adc's logger level
+        self.adc.ref = ref_clock # Set reference clock for ADC
+        # ADC calibration assumed already aligned (?)
+        # Need to set the ADC gain?
+        # Get info from and set registers 
+        self.logger.info(f"FPGA clock: {self.cfpga.estimate_fpga_clock():.2f}")
+        self.logger.info(f"Set FFT shift schedule to {fftshift:b}")
+        self.logger.info(f"Set correlator accumulation length to {acc_len}")
+        self.cfpga.registers.acc_len.write_int(acc_len)
+        # This firmware only has 4-bit qutnziation
+        self.logger.info("Reset GBE (UDP packetizer)")
+        self.cfpga.registers.gbe_rst.write_int(0)
+        self.cfpga.registers.gbe_rst.write_int(1)
+        self.cfpga.registers.gbe_rst.write_int(0)
+        self.logger.info(f"Set #spectra-per-packet to {spectra_per_packet}")
+        self.cfpga.registers.packetiser_spectra_per_packet.write_int(spectra_per_packet)
+        self.logger.info(f"Set #bytes-per-spectrum to {bytes_per_spectrum}")
+        self.cfpga.registers.packetiser_bytes_per_spectrum.write_int(bytes_per_spectrum)
+        self.logger.info(f"Set destination IP address and port to {dest_ip}:{dest_prt}")
+        self.cfpga.registers.dest_ip.write_int(str2ip(dest_ip))
+        self.cfpga.registers.dest_prt.write_int(dest_prt)
+        # Do we need to set mac address?
+        self.logger.info("Resetting counters and syncing")
+        self.cfpga.registers.cnt_rst.write_int(0)
+        self.cfpga.registers.sync.write_int(0)
+        self.cfpga.registers.sync.write_int(1)
+        self.cfpga.registers.sync.write_int(0)
+        self.cfpga.registers.cnt_rst.write_int(1)
+        self.cfpga.registers.cnt_rst.write_int(0)
+        fft_of_count = self.cfpga.registers.fft_of_count.read_uint()
+        if fft_of_count:
+            self.logger.warning(f"FFT overflowing: count={fft_of_count}")
+        else:
+            self.logger.info(f"No FFT overflows detected")
+        self.logger.info("Enabling 1 GbE output")
+        self.cfpga.registers.gbe_en.write_int(1)
+        gbe_overflow = self.cfpga.registers.tx_of_cnt.read_uint()
+        if gbe_overflow:
+            self.logger.warning(f"GbE transmit overflowing: count={gbe_overflow}")
+        else:
+            self.logger.info("No GbE overflows detected")
+        self.logger.info("Setup and tuning complete")
+        return
+
+    def read_pols(self, pols, struct_format=">2048q"):
+        pols_dict = {}
+        for pol in pols:
+            pols_dict[pol] = np.array(struct.unpack(struct_format, self.cfpga.read(pol, 2048*8)), dtype="int64")
+        return pols_dict
+
+    def set_channels(self, channels:list):
+        """
+        Set reorder BRAMs to reorder channels before selection.
+
+        :param channels: A list or array of the channels to select. 
+        """
+        # TODO: implement this
+        return 
+
+
+
+
+
+
+
