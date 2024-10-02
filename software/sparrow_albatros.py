@@ -168,6 +168,8 @@ class AlbatrosDigitizer(SparrowAlbatros):
         # Get info from and set registers 
         self.logger.info(f"FPGA clock: {self.cfpga.estimate_fpga_clock():.2f}")
         self.logger.info(f"Set FFT shift schedule to {fftshift:b}")
+        self.cfpga.registers.pfb_fft_shift.write_int(fftshift)
+        fft_of_count_init = self.cfpga.registers.fft_of_count.read_uint() # start counting fft overflows above this number
         self.logger.info(f"Set correlator accumulation length to {acc_len}")
         self.cfpga.registers.acc_len.write_int(acc_len)
         # This firmware only has 4-bit qutnziation
@@ -190,8 +192,8 @@ class AlbatrosDigitizer(SparrowAlbatros):
         self.cfpga.registers.sync.write_int(0)
         self.cfpga.registers.cnt_rst.write_int(1)
         self.cfpga.registers.cnt_rst.write_int(0)
-        fft_of_count = self.cfpga.registers.fft_of_count.read_uint()
-        if fft_of_count:
+        fft_of_count = self.cfpga.registers.fft_of_count.read_uint() - fft_of_count_init
+        if fft_of_count != 0:
             self.logger.warning(f"FFT overflowing: count={fft_of_count}")
         else:
             self.logger.info(f"No FFT overflows detected")
