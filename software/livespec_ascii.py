@@ -70,8 +70,9 @@ while True:
     width=80
     idxs = np.arange(int(minfreq*2048/250), int(maxfreq*2048/250))
     width=len(idxs)
-    heights=width//3
-    ascii_plot(10*np.log10(pol00[idxs]),10*np.log10(pol11[idxs]),minfreq,maxfreq,width=width)
+    height=width//3
+    ascii_plot(10*np.log10(pol00[idxs]),10*np.log10(pol11[idxs]),minfreq,maxfreq,
+            height=height,width=width)
 
 
 

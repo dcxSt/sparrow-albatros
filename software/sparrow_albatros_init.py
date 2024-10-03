@@ -40,6 +40,8 @@ def run(host, fpgfile,
     if fpga_clock_mhz < 1:
         raise RuntimeError("FPGA doesn't seem to be clocking correctly")
 
+    logger.info("Initializing ADCs")
+    sparrow.initialize_adc()
     logger.info("Tuning FPGA registers")
     sparrow.setup_and_tune(ref_clock=10, fftshift=0xffff, acc_len=(1<<17),
             dest_ip="10.10.255.255", dest_prt=4321, 
