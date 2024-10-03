@@ -4,7 +4,9 @@ import time
 import argparse
 import logging
 import casperfpga
-from sparrow_albatros import SparrowAlbatros
+from sparrow_albatros import AlbatrosDigitizer
+
+#Firmware location /home/casper/sparrow-albatros/firmware/sparrow_albatros_spec/outputs/sparrow_albatros_spec_2023-08-22_2102-xc7z035.fpg
 
 def run(host, fpgfile,
         adc_clk=500,
@@ -12,16 +14,21 @@ def run(host, fpgfile,
         ):
 
     logger = logging.getLogger(__file__)
-    logger.setLevel(logging.INFO)
-    #handler = logging.StreamHandler(sys.stdout)
-    #handler.setLevel(logging.INFO)
-    #logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG)
+    # Create a console handler to output logs to the terminal
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.DEBUG)  # Set the handler's logging level
+    # Create a formatter for the log messages
+    formatter=logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    console_handler.setFormatter(formatter)
+    # Add the handler to the logger
+    logger.addHandler(console_handler)
 
     logger.info("Connecting to board with hostname %s" % host)
     cfpga = casperfpga.CasperFpga(host, transport=casperfpga.KatcpTransport)
 
     logger.info("Instantiating control object with fpgfile %s" % fpgfile)
-    sparrow = SparrowAlbatros(cfpga, fpgfile=fpgfile, adc_clk=adc_clk)
+    sparrow = AlbatrosDigitizer(cfpga, fpgfile=fpgfile, adc_clk=adc_clk, logger=logger)
 
     if not skipprog:
         logger.info("Programming FPGA at %s with %s" % (host, fpgfile))
@@ -32,6 +39,11 @@ def run(host, fpgfile,
 
     if fpga_clock_mhz < 1:
         raise RuntimeError("FPGA doesn't seem to be clocking correctly")
+
+    logger.info("Tuning FPGA registers")
+    sparrow.setup_and_tune(ref_clock=10, fftshift=0xffff, acc_len=(1<<17),
+            dest_ip="10.10.255.255", dest_prt=4321, 
+            spectra_per_packet=128, bytes_per_spectrum=16)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Program and initialize a Sparrow ADC->10GbE design',
