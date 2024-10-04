@@ -15,6 +15,14 @@ def str2ip(ip):
         ipint += (iplist[i] << (8*(3-i)))
     return ipint
 
+def ip2str(ipint):
+    ip=""
+    for i in range(4):
+        shift = (3-i)*8
+        ip += str((ipint & (0b11111111<<shift)) >> shift)
+        ip += '.'
+    return ip[:-1]
+
 class SparrowAlbatros():
     def __init__(self, cfpga, fpgfile=None, adc_clk=500.):
         """
