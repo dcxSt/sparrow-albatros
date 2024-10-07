@@ -194,10 +194,10 @@ class AlbatrosDigitizer(SparrowAlbatros):
         self.cfpga.registers.dest_prt.write_int(dest_prt)
         # Do we need to set mac address?
         self.logger.info("Resetting counters and syncing")
-        self.cfpga.registers.cnt_rst.write_int(0)
         self.cfpga.registers.sync.write_int(0)
         self.cfpga.registers.sync.write_int(1)
         self.cfpga.registers.sync.write_int(0)
+        self.cfpga.registers.cnt_rst.write_int(0)
         self.cfpga.registers.cnt_rst.write_int(1)
         self.cfpga.registers.cnt_rst.write_int(0)
         fft_of_count = self.cfpga.registers.fft_of_count.read_uint() - fft_of_count_init

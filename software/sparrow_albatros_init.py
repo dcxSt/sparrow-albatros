@@ -6,14 +6,17 @@ import logging
 import casperfpga
 from sparrow_albatros import AlbatrosDigitizer
 
-#Firmware location /home/casper/sparrow-albatros/firmware/sparrow_albatros_spec/outputs/sparrow_albatros_spec_2023-08-22_2102-xc7z035.fpg
+#DEFAULT_FPGFILE="/home/casper/sparrow-albatros/firmware/sparrow_albatros_spec/outputs/sparrow_albatros_spec_2023-08-22_2102-xc7z035.fpg"
 
 def run(host, fpgfile,
         adc_clk=500,
         skipprog=False,
         ):
 
-    logger = logging.getLogger(__file__)
+    try:logger = logging.getLogger(__file__)
+    except:
+        print("Logger failed to be christned __file__")
+        logger = logging.getLogger('my_logger')
     logger.setLevel(logging.DEBUG)
     # Create a console handler to output logs to the terminal
     console_handler = logging.StreamHandler()
@@ -46,6 +49,7 @@ def run(host, fpgfile,
     sparrow.setup_and_tune(ref_clock=10, fftshift=0xffff, acc_len=(1<<17),
             dest_ip="10.10.255.255", dest_prt=4321, 
             spectra_per_packet=128, bytes_per_spectrum=16)
+    return sparrow
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Program and initialize a Sparrow ADC->10GbE design',
