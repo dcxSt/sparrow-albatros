@@ -18,14 +18,14 @@ def run(host, fpgfile,
         print("Logger failed to be christned __file__")
         logger = logging.getLogger('my_logger')
     logger.setLevel(logging.DEBUG)
-    # Create a console handler to output logs to the terminal
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.DEBUG)  # Set the handler's logging level
-    # Create a formatter for the log messages
-    formatter=logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    console_handler.setFormatter(formatter)
-    # Add the handler to the logger
-    logger.addHandler(console_handler)
+    ## Create a console handler to output logs to the terminal
+    #console_handler = logging.StreamHandler()
+    #console_handler.setLevel(logging.DEBUG)  # Set the handler's logging level
+    ## Create a formatter for the log messages
+    #formatter=logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    #console_handler.setFormatter(formatter)
+    ## Add the handler to the logger
+    #logger.addHandler(console_handler)
 
     logger.info("Connecting to board with hostname %s" % host)
     cfpga = casperfpga.CasperFpga(host, transport=casperfpga.KatcpTransport)
@@ -47,8 +47,8 @@ def run(host, fpgfile,
     sparrow.initialize_adc()
     logger.info("Tuning FPGA registers")
     sparrow.setup_and_tune(ref_clock=10, fftshift=0xffff, acc_len=(1<<17),
-            dest_ip="10.10.255.255", dest_prt=4321, 
-            spectra_per_packet=128, bytes_per_spectrum=16)
+            dest_ip="255.255.255.255", dest_prt=4321, 
+            spectra_per_packet=4096, bytes_per_spectrum=16)
     return sparrow
 
 if __name__ == '__main__':

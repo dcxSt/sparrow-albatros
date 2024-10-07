@@ -140,6 +140,16 @@ class AlbatrosDigitizer(SparrowAlbatros):
         self.logger = logger # TODO: sort out logging, default logger?
         return 
 
+    def print_regs(self):
+        """Prints contents of registers."""
+        print(f"dest_ip\t\t{ip2str(self.cfpga.registers.dest_ip.read_uint())}")
+        print(f"gbe_en\t\t{self.cfpga.registers.gbe_en.read_uint()}")
+        print(f"gbe_rst\t\t{self.cfpga.registers.gbe_rst.read_uint()}")
+        print(f"bytes-per-spec\t{self.cfpga.registers.packetiser_bytes_per_spectrum.read_uint()}")
+        print(f"spec-per-pack\t{self.cfpga.registers.packetiser_spectra_per_packet.read_uint()}")
+        print(f"sync\t\t{self.cfpga.registers.sync.read_uint()}")
+        print(f"tx_of_cnt\t{self.cfpga.registers.tx_of_cnt.read_uint()}")
+
     def setup_and_tune(self, ref_clock, fftshift, acc_len, dest_ip, 
             dest_prt, spectra_per_packet, bytes_per_spectrum):
         """
@@ -182,9 +192,8 @@ class AlbatrosDigitizer(SparrowAlbatros):
         self.cfpga.registers.acc_len.write_int(acc_len)
         # This firmware only has 4-bit qutnziation
         self.logger.info("Reset GBE (UDP packetizer)")
-        self.cfpga.registers.gbe_rst.write_int(0)
         self.cfpga.registers.gbe_rst.write_int(1)
-        self.cfpga.registers.gbe_rst.write_int(0)
+        self.cfpga.registers.gbe_en.write_int(0)
         self.logger.info(f"Set #spectra-per-packet to {spectra_per_packet}")
         self.cfpga.registers.packetiser_spectra_per_packet.write_int(spectra_per_packet)
         self.logger.info(f"Set #bytes-per-spectrum to {bytes_per_spectrum}")
@@ -194,10 +203,11 @@ class AlbatrosDigitizer(SparrowAlbatros):
         self.cfpga.registers.dest_prt.write_int(dest_prt)
         # Do we need to set mac address?
         self.logger.info("Resetting counters and syncing")
+        time.sleep(0.2)
+        self.cfpga.registers.cnt_rst.write_int(0)
         self.cfpga.registers.sync.write_int(0)
         self.cfpga.registers.sync.write_int(1)
         self.cfpga.registers.sync.write_int(0)
-        self.cfpga.registers.cnt_rst.write_int(0)
         self.cfpga.registers.cnt_rst.write_int(1)
         self.cfpga.registers.cnt_rst.write_int(0)
         fft_of_count = self.cfpga.registers.fft_of_count.read_uint() - fft_of_count_init
@@ -207,6 +217,8 @@ class AlbatrosDigitizer(SparrowAlbatros):
             self.logger.info(f"No FFT overflows detected")
         self.logger.info("Enabling 1 GbE output")
         self.cfpga.registers.gbe_en.write_int(1)
+        #self.logger.info("Leaving GBE reset high; pull it down manually once you think the negotiation has happened well!")
+        self.cfpga.registers.gbe_rst.write_int(0)
         gbe_overflow = self.cfpga.registers.tx_of_cnt.read_uint()
         if gbe_overflow:
             self.logger.warning(f"GbE transmit overflowing: count={gbe_overflow}")
