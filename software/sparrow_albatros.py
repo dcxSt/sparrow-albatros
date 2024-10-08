@@ -149,8 +149,17 @@ class AlbatrosDigitizer(SparrowAlbatros):
         print(f"spec-per-pack\t{self.cfpga.registers.packetiser_spectra_per_packet.read_uint()}")
         print(f"sync\t\t{self.cfpga.registers.sync.read_uint()}")
         print(f"tx_of_cnt\t{self.cfpga.registers.tx_of_cnt.read_uint()}")
+        print(f"sync_cnt\t{self.cfpga.registers.sync_cnt.read_uint()}")
 
-    def setup_and_tune(self, ref_clock, fftshift, acc_len, dest_ip, 
+    def setup(self):
+        self.logger.info("Programming FPGA")
+        self.program_fpga()
+        fpga_clock_mhz = self.cfpga.estimate_fpga_clock()
+        self.logger.info(f"Estimated FPGA clock is {fpga_clock_mhz:.2f}")
+        self.logger.info("Initializing ADCs")
+        self.initialize_adc()
+
+    def tune(self, ref_clock, fftshift, acc_len, dest_ip, 
             dest_prt, spectra_per_packet, bytes_per_spectrum):
         """
         Setup the FPGA firmware by tuning the input registers.
@@ -177,6 +186,9 @@ class AlbatrosDigitizer(SparrowAlbatros):
 
         JF reccomends using netcat for writing packets to file for test. 
         """
+        MTU=1500 # max number of bytes in a packet
+        assert spectra_per_packet < (1<<5), "spec-per-pack too large for slice, aborting"
+        assert spectra_per_packet * bytes_per_spectrum <= MTU-8, "Packets too large, will cause fragmentation"
         # Assume bitstream already uploaded, data in self.cfpga
         # Assume ADCs already initialized including that get_system_information...
         # Inherit adc's logger level
@@ -194,9 +206,9 @@ class AlbatrosDigitizer(SparrowAlbatros):
         self.logger.info("Reset GBE (UDP packetizer)")
         self.cfpga.registers.gbe_rst.write_int(1)
         self.cfpga.registers.gbe_en.write_int(0)
-        self.logger.info(f"Set #spectra-per-packet to {spectra_per_packet}")
+        self.logger.info(f"Set spectra-per-packet to {spectra_per_packet}")
         self.cfpga.registers.packetiser_spectra_per_packet.write_int(spectra_per_packet)
-        self.logger.info(f"Set #bytes-per-spectrum to {bytes_per_spectrum}")
+        self.logger.info(f"Set bytes-per-spectrum to {bytes_per_spectrum}")
         self.cfpga.registers.packetiser_bytes_per_spectrum.write_int(bytes_per_spectrum)
         self.logger.info(f"Set destination IP address and port to {dest_ip}:{dest_prt}")
         self.cfpga.registers.dest_ip.write_int(str2ip(dest_ip))
@@ -205,9 +217,9 @@ class AlbatrosDigitizer(SparrowAlbatros):
         self.logger.info("Resetting counters and syncing")
         time.sleep(0.2)
         self.cfpga.registers.cnt_rst.write_int(0)
-        self.cfpga.registers.sync.write_int(0)
-        self.cfpga.registers.sync.write_int(1)
-        self.cfpga.registers.sync.write_int(0)
+        self.cfpga.registers.sync.write_int(0) # ADC sync
+        self.cfpga.registers.sync.write_int(1) # ADC sync
+        self.cfpga.registers.sync.write_int(0) # ADC sync
         self.cfpga.registers.cnt_rst.write_int(1)
         self.cfpga.registers.cnt_rst.write_int(0)
         fft_of_count = self.cfpga.registers.fft_of_count.read_uint() - fft_of_count_init
@@ -226,6 +238,10 @@ class AlbatrosDigitizer(SparrowAlbatros):
             self.logger.info("No GbE overflows detected")
         self.logger.info("Setup and tuning complete")
         return
+
+    def setup_and_tune(self,**kwargs):
+        self.setup()
+        self.tune(**kwargs)
 
     def read_pols(self, pols, struct_format=">2048q"):
         pols_dict = {}
