@@ -8,9 +8,13 @@ from configparser import ConfigParser
 import utils
 import logging
 import datetime
-import socket
 from sparrow_albatros import str2ip
 import lbtools_l
+#from pcapy import open_live
+import socket
+import struct
+import pcapy
+import dpkt
 
 def write_header(file_object, chans, spec_per_packet, bytes_per_packet, bits):
     have_trimble = True
@@ -18,7 +22,7 @@ def write_header(file_object, chans, spec_per_packet, bytes_per_packet, bits):
     gpsread = lbtools_l.lb_read()
     gps_time = gpsread[0]
     if gps_time is None:
-        logger.info('File timestamp coming from RPi clock. This is unreliable.')
+        logger.info('File timestamp coming from Sparrow clock. This is unreliable.')
         have_trimble = False
         gps_time = time.time()
     #print('GPS time is now ', gps_time)
@@ -96,23 +100,34 @@ if __name__=="__main__":
     CHANNELS_STRING=config_file.get("baseband", "channels")
     BITS=config_file.get("baseband", "bits") # 1 or 4
 
-    # Set up comms
-    sock=socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    bufsize=sock.getsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF)
-    logger.info(f"UDP buf size in bytes: {bufsize}")
-    # timeout prevents hanging on sock.recvfrom_into(packet, bytes_per_packet) after overheat
-    sock.settimeout(10)
-    try:
-        sock.bind((DEST_IP, DEST_PRT))
-        #sock.bind(('0.0.0.0', DEST_PRT))
-        logger.info(f"Connected to {DEST_IP}:{DEST_PRT}")
-    except:
-        logger.error(f"Cannot bind to {DEST_IP}:{DEST_PRT}")
+    ## ==== Set up comms ====
+    max_bytes=65565
+    #sock=socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    #bufsize=sock.getsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF)
+    #logger.info(f"UDP buf size in bytes: {bufsize}")
+    ## timeout prevents hanging on sock.recvfrom_into(packet, bytes_per_packet) after overheat
+    #sock.settimeout(10)
+    #try:
+    #    sock.bind((DEST_IP, DEST_PRT))
+    #    #sock.bind(('0.0.0.0', DEST_PRT))
+    #    logger.info(f"Connected to {DEST_IP}:{DEST_PRT}")
+    #except:
+    #    logger.error(f"Cannot bind to {DEST_IP}:{DEST_PRT}")
+
+    #sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(3))
+    #sock.bind(('eth0', 0))
+    cap = pcapy.open_live('eth0', 65535, 1, 100)
+    cap.setfilter("udp and dst port 7417 and dst host 10.10.11.99 and src host 192.168.41.10") 
+    UDP_PORT = 7417
+
     chans=utils.get_channels_from_str(CHANNELS_STRING, BITS)
     spec_per_packet=utils.get_nspec(chans, max_nbyte=MAX_BYTES_PER_PACKET)
     bytes_per_spectrum=chans.shape[0]
+    print(f"Spec per packet: {spec_per_packet}")
+    print(f"Bytes per spectrum: {bytes_per_spectrum}")
+    input("[Enter]")
     bytes_per_packet=bytes_per_spectrum*spec_per_packet+4 #the 4 extra bytes is for the spectrum number
-    packet=bytearray(bytes_per_packet)
+    #packet=bytearray(bytes_per_packet)
     num_of_packets_per_file=int(FILE_SIZE*1.0e9/bytes_per_packet)
     spec_per_file = spec_per_packet * num_of_packets_per_file
     logger.info(f"Spectra per packet: {spec_per_packet}")
@@ -131,23 +146,35 @@ if __name__=="__main__":
     # for now just this hacky thing, assume the drive has been mounted and has space
     bbpath="/media/BASEBAND/baseband"
     assert os.path.isdir(bbpath), "Drive not mounted, crashing program"
+    ip_header_start = 14
+    udp_header_start = ip_header_start + 20
+    udp_payload_start = udp_header_start + 8 # udp header is 8 bytes
+    print("bytes_per_packet", bytes_per_packet)
     while True:
         dirtime=str(int(time.time()))[:5] # first five digitis of ctime
         if not os.path.isdir(join(bbpath, dirtime)):
             os.mkdir(join(bbpath, dirtime))
         fname=f"{int(time.time())}.raw"
         fpath=join(bbpath, dirtime, fname)
-        with open(fpath, "wb", buffering=100*bytes_per_packet) as bbfile:
+        with open(fpath, "wb", buffering=1024*1024) as bbfile:
             write_header(bbfile, chans, spec_per_packet, bytes_per_packet, BITS)
             for i in range(num_of_packets_per_file):
-                sock.recvfrom_into(packet, bytes_per_packet)
-                bbfile.write(packet)
-                sn=np.frombuffer(packet, dtype=">I", count=1)[0]
-                if i == 0:
-                    start_sn = sn
-        missing_frac = 1. - float(number_of_packets_per_file * spec_per_packet)/(sn - start_sn + spec_per_packet)
+                try:
+                    (header, packet) = cap.next()
+                    bbfile.write(packet[udp_payload_start:udp_payload_start + bytes_per_packet])
+                    sn = int.from_bytes(packet[udp_payload_start:udp_payload_start + 4], byteorder='big', signed=False)
+                    if i == 0:
+                        start_sn = sn
+                except Exception as e:
+                    logger.warning(f"Ignoring exception {e}")
+                    continue
+        print(f"num packets per file {num_of_packets_per_file}")
+        print(f"spec_per_packet {spec_per_packet}")
+        print(f"sn {sn}")
+        print(f"start sn {start_sn}")
+        missing_frac = 1. - float(num_of_packets_per_file * spec_per_packet)/(sn - start_sn + spec_per_packet)
         perc_missing = missing_frac * 100
-        logger.info(f"Wrote file to {fpath}. Missing percentage of packets is {perc_missing:5.3f}")
+        logger.info(f"Wrote file to {fpath}. Missing percentage of packets is {perc_missing:.5f}")
 
 
 

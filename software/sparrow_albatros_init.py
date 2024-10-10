@@ -48,7 +48,7 @@ def run(host, fpgfile,
     logger.info("Tuning FPGA registers")
     sparrow.setup_and_tune(ref_clock=10, fftshift=0xffff, acc_len=(1<<17),
             dest_ip="255.255.255.255", dest_prt=4321, 
-            spectra_per_packet=4096, bytes_per_spectrum=16)
+            spectra_per_packet=16, bytes_per_spectrum=16)
     return sparrow
 
 if __name__ == '__main__':
