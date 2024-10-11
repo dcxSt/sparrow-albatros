@@ -158,10 +158,11 @@ class AlbatrosDigitizer(SparrowAlbatros):
         elif bits==4:
             channel_map="four_bit_reorder_map1" # hard coded name of fpga bram name
         else:
-            raise ValueError("")
+            raise ValueError(f"Bits must be 1 or 4, not {bits}")
         self.cfpga.write(channel_map, channels.astype(">H").tostring(), offset=0) # .tostring ret bytes
 
     def set_channel_coeffs(self, coeffs, bits):
+        """Coeffs must be type '>I'"""
         if bits==1:
             self.logger.info("In one bit mode. No need to write coeffs.")
             return 
@@ -169,7 +170,7 @@ class AlbatrosDigitizer(SparrowAlbatros):
             coeffs_bram_name="four_bit_quant_coeffs"
             self.logger.info("Setting four bit coeffs.")
         self.cfpga.write(coeffs_bram_name, coeffs.tostring(), offset=0)
-
+        return 
 
     def setup(self):
         self.logger.info("Programming FPGA")
@@ -234,17 +235,21 @@ class AlbatrosDigitizer(SparrowAlbatros):
         self.cfpga.registers.dest_ip.write_int(str2ip(dest_ip))
         self.cfpga.registers.dest_prt.write_int(dest_prt)
         # Do we need to set mac address?
+        self.logger.info("Resetting packetizer")
+        self.cfpga.registers.pack_rst.write_int(0)
+        self.cfpga.registers.pack_rst.write_int(1)
+        self.cfpga.registers.pack_rst.write_int(0)
         self.logger.info("Resetting counters and syncing")
         time.sleep(0.2)
-        self.cfpga.registers.cnt_rst.write_int(0)
-        self.cfpga.registers.sync_adc.write_int(0) 
-        self.cfpga.registers.sync_adc.write_int(1) 
-        self.cfpga.registers.sync_adc.write_int(0) 
-        self.cfpga.registers.sync.write_int(0) # ADC sync
-        self.cfpga.registers.sync.write_int(1) # ADC sync
-        self.cfpga.registers.sync.write_int(0) # ADC sync
+        self.cfpga.registers.sync_adc.write_int(0) # ADC sync
+        self.cfpga.registers.sync_adc.write_int(1) # ADC sync
+        self.cfpga.registers.sync_adc.write_int(0) # ADC sync
+        self.cfpga.registers.cnt_rst.write_int(0) # Acc control reset pulse 
         self.cfpga.registers.cnt_rst.write_int(1)
         self.cfpga.registers.cnt_rst.write_int(0)
+        self.cfpga.registers.sync.write_int(0) # Sync pulse must come after acc cntrl reset
+        self.cfpga.registers.sync.write_int(1) 
+        self.cfpga.registers.sync.write_int(0) 
         fft_of_count = self.cfpga.registers.fft_of_count.read_uint() - fft_of_count_init
         if fft_of_count != 0:
             self.logger.warning(f"FFT overflowing: count={fft_of_count}")

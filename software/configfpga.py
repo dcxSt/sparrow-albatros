@@ -58,11 +58,10 @@ logger.info("Parsing config.ini for relevant values")
 MAX_BYTES_PER_PACKET=config_file.getint("networking", "max_bytes_per_packet")
 CHANNELS_STRING=config_file.get("baseband", "channels")
 COEFFS_STRING=config_file.get("baseband", "coeffs")
-BITS=config_file.get("baseband", "bits") # 1 or 4
+BITS=config_file.getint("baseband", "bits") # 1 or 4
 FPGFILE=config_file.get("paths", "fpgfile")
 chans=utils.get_channels_from_str(CHANNELS_STRING, BITS)
 print("chans", chans)
-input('[enter]')
 coeffs=utils.get_coeffs_from_str(COEFFS_STRING)
 spectra_per_packet=utils.get_nspec(chans, max_nbyte=MAX_BYTES_PER_PACKET)
 bytes_per_spectrum=chans.shape[0]
@@ -73,7 +72,7 @@ print(f"Bytes per spectrum: {bytes_per_spectrum}")
 logger.info("Writing bitstream to FPGA and initializing...")
 host="10.10.11.99"
 fpga=casperfpga.CasperFpga(host,transport=casperfpga.KatcpTransport)
-sparrow=AlbatrosDigitizer(fpga,FPGFILE,500.,logging.getLogger('x'))
+sparrow=AlbatrosDigitizer(fpga,FPGFILE,500.,logger)
 sparrow.setup()
 sparrow.set_channel_order(chans, BITS)
 sparrow.set_channel_coeffs(coeffs, BITS)
