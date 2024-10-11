@@ -151,6 +151,26 @@ class AlbatrosDigitizer(SparrowAlbatros):
         print(f"tx_of_cnt\t{self.cfpga.registers.tx_of_cnt.read_uint()}")
         print(f"sync_cnt\t{self.cfpga.registers.sync_cnt.read_uint()}")
 
+    def set_channel_order(self, channels, bits):
+        """Sets the firmware channels"""
+        if bits==1:
+            raise NotImplementedError(f"1 bit mode has not yet been implemented")
+        elif bits==4:
+            channel_map="four_bit_reorder_map1" # hard coded name of fpga bram name
+        else:
+            raise ValueError("")
+        self.cfpga.write(channel_map, channels.astype(">H").tostring(), offset=0) # .tostring ret bytes
+
+    def set_channel_coeffs(self, coeffs, bits):
+        if bits==1:
+            self.logger.info("In one bit mode. No need to write coeffs.")
+            return 
+        elif bits==4:
+            coeffs_bram_name="four_bit_quant_coeffs"
+            self.logger.info("Setting four bit coeffs.")
+        self.cfpga.write(coeffs_bram_name, coeffs.tostring(), offset=0)
+
+
     def setup(self):
         self.logger.info("Programming FPGA")
         self.program_fpga()
@@ -217,6 +237,9 @@ class AlbatrosDigitizer(SparrowAlbatros):
         self.logger.info("Resetting counters and syncing")
         time.sleep(0.2)
         self.cfpga.registers.cnt_rst.write_int(0)
+        self.cfpga.registers.sync_adc.write_int(0) 
+        self.cfpga.registers.sync_adc.write_int(1) 
+        self.cfpga.registers.sync_adc.write_int(0) 
         self.cfpga.registers.sync.write_int(0) # ADC sync
         self.cfpga.registers.sync.write_int(1) # ADC sync
         self.cfpga.registers.sync.write_int(0) # ADC sync

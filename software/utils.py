@@ -55,20 +55,19 @@ def get_nspec(chans,max_nbyte=1380):
         nspec=1
     return nspec
 
-#def get_coeffs_from_str(coeffs):
-#    multi_coeff=coeffs.split(" ")
-#    new_coeffs=np.zeros(2048)
-#    for single_coeff in multi_coeff:
-#        start_stop_coeff=list(map(int, single_coeff.split(":")))
-#        if start_stop_coeff[2]>=0:
-#            val=start_stop_coeff[2]
-#        else:
-#            val=2**(-start_stop_coeff[2])
-#        #new_coeffs[np.arange(start_stop_coeff[0], start_stop_coeff[1])]=start_stop_coeff[2]
-#        new_coeffs[np.arange(start_stop_coeff[0], start_stop_coeff[1])]=val
-#    new_coeffs=np.asarray(new_coeffs, dtype=">I")
-#    return new_coeffs
-#
+def get_coeffs_from_str(coeffs):
+    multi_coeff=coeffs.split(" ")
+    new_coeffs=np.zeros(2048)
+    for single_coeff in multi_coeff:
+        start_stop_coeff=list(map(int, single_coeff.split(":")))
+        if start_stop_coeff[2]>=0:
+            val=start_stop_coeff[2]
+        else:
+            val=2**(-start_stop_coeff[2])
+        new_coeffs[np.arange(start_stop_coeff[0], start_stop_coeff[1])]=val
+    new_coeffs=np.asarray(new_coeffs, dtype=">I")
+    return new_coeffs
+
 #def get_channels_from_freq(nu=[0,30],nbit=0,nu_max=125,nchan=2048,dtype='>i2',verbose=False):
 #    nseg=len(nu)//2
 #    for j in range(nseg):
