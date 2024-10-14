@@ -172,6 +172,26 @@ class AlbatrosDigitizer(SparrowAlbatros):
         self.cfpga.write(coeffs_bram_name, coeffs.tostring(), offset=0)
         return 
 
+    def sync_pulse(self):
+        """The firmware is designed so that pack_rst and cnt_rst set some 
+        internal state to zero that the sync pulse sets to one. Without
+        doing pack_rst and cnt_rst before pulseing the sync, things are 
+        not properly synced up and bad things happen."""
+        self.logger.info("Resetting packetizer")
+        self.cfpga.registers.pack_rst.write_int(0)
+        self.cfpga.registers.pack_rst.write_int(1)
+        self.cfpga.registers.pack_rst.write_int(0)
+        self.logger.info("Resetting counters and syncing")
+        self.cfpga.registers.sync_adc.write_int(0) # ADC sync
+        self.cfpga.registers.sync_adc.write_int(1) # ADC sync
+        self.cfpga.registers.sync_adc.write_int(0) # ADC sync
+        self.cfpga.registers.cnt_rst.write_int(0) # Acc control reset pulse 
+        self.cfpga.registers.cnt_rst.write_int(1)
+        self.cfpga.registers.cnt_rst.write_int(0)
+        self.cfpga.registers.sync.write_int(0) # Sync pulse must come after acc cntrl reset
+        self.cfpga.registers.sync.write_int(1) 
+        self.cfpga.registers.sync.write_int(0) 
+
     def setup(self):
         self.logger.info("Programming FPGA")
         self.program_fpga()
@@ -235,21 +255,7 @@ class AlbatrosDigitizer(SparrowAlbatros):
         self.cfpga.registers.dest_ip.write_int(str2ip(dest_ip))
         self.cfpga.registers.dest_prt.write_int(dest_prt)
         # Do we need to set mac address?
-        self.logger.info("Resetting packetizer")
-        self.cfpga.registers.pack_rst.write_int(0)
-        self.cfpga.registers.pack_rst.write_int(1)
-        self.cfpga.registers.pack_rst.write_int(0)
-        self.logger.info("Resetting counters and syncing")
-        time.sleep(0.2)
-        self.cfpga.registers.sync_adc.write_int(0) # ADC sync
-        self.cfpga.registers.sync_adc.write_int(1) # ADC sync
-        self.cfpga.registers.sync_adc.write_int(0) # ADC sync
-        self.cfpga.registers.cnt_rst.write_int(0) # Acc control reset pulse 
-        self.cfpga.registers.cnt_rst.write_int(1)
-        self.cfpga.registers.cnt_rst.write_int(0)
-        self.cfpga.registers.sync.write_int(0) # Sync pulse must come after acc cntrl reset
-        self.cfpga.registers.sync.write_int(1) 
-        self.cfpga.registers.sync.write_int(0) 
+        self.sync_pulse()
         fft_of_count = self.cfpga.registers.fft_of_count.read_uint() - fft_of_count_init
         if fft_of_count != 0:
             self.logger.warning(f"FFT overflowing: count={fft_of_count}")
