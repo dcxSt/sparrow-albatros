@@ -56,10 +56,10 @@ logger.debug("This is a debug message")
 host="10.10.11.99"
 fpgfile=None
 cfpga=casperfpga.CasperFpga(host, transport=casperfpga.KatcpTransport)
-s=AlbatrosDigitizer(cfpga,fpgfile,500.,logger)
+s=AlbatrosDigitizer(cfpga,fpgfile,250,logger)
 #spectra_per_packet=16 # max 31, (slice 5 bits)
 #bytes_per_spectrum=16
-#s.setup_and_tune(ref_clock=500, fftshift=0xffff, acc_len=(1<<17), dest_ip="255.255.255.255", dest_prt=7417, spectra_per_packet=spectra_per_packet, bytes_per_spectrum=bytes_per_spectrum)
+#s.setup_and_tune(ref_clock=250, fftshift=0xffff, acc_len=(1<<17), dest_ip="255.255.255.255", dest_prt=7417, spectra_per_packet=spectra_per_packet, bytes_per_spectrum=bytes_per_spectrum)
 #wait=15
 #print(f"Waiting {wait} seconds")
 #time.sleep(wait)

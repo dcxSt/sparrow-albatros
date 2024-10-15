@@ -60,6 +60,7 @@ CHANNELS_STRING=config_file.get("baseband", "channels")
 COEFFS_STRING=config_file.get("baseband", "coeffs")
 BITS=config_file.getint("baseband", "bits") # 1 or 4
 FPGFILE=config_file.get("paths", "fpgfile")
+ADC_CLK=config_file.getint("baseband", "adc_clk") # 250, but can differ depending on firmware
 chans=utils.get_channels_from_str(CHANNELS_STRING, BITS)
 print("chans", chans)
 coeffs=utils.get_coeffs_from_str(COEFFS_STRING)
@@ -72,11 +73,11 @@ print(f"Bytes per spectrum: {bytes_per_spectrum}")
 logger.info("Writing bitstream to FPGA and initializing...")
 host="10.10.11.99"
 fpga=casperfpga.CasperFpga(host,transport=casperfpga.KatcpTransport)
-sparrow=AlbatrosDigitizer(fpga,FPGFILE,500.,logger)
+sparrow=AlbatrosDigitizer(fpga,FPGFILE,ADC_CLK,logger)
 sparrow.setup()
 sparrow.set_channel_order(chans, BITS)
 sparrow.set_channel_coeffs(coeffs, BITS)
-sparrow.tune(ref_clock=500.,fftshift=0xffff,acc_len=1<<17,dest_ip="10.10.11.99",
+sparrow.tune(ref_clock=ADC_CLK,fftshift=0xffff,acc_len=1<<17,dest_ip="10.10.11.99",
         dest_prt=7417,
         spectra_per_packet=spectra_per_packet,
         bytes_per_spectrum=bytes_per_spectrum)
