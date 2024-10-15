@@ -24,7 +24,7 @@ def ip2str(ipint):
     return ip[:-1]
 
 class SparrowAlbatros():
-    def __init__(self, cfpga, fpgfile=None, adc_clk=500.):
+    def __init__(self, cfpga, fpgfile=None, adc_clk=250):
         """
         Constuctor for SparrowAdc2Tge control instance.
 
@@ -132,7 +132,7 @@ class SparrowAlbatros():
         return x, y
 
 class AlbatrosDigitizer(SparrowAlbatros):
-    def __init__(self, cfpga, fpgfile=None, adc_clk=500., logger=None):
+    def __init__(self, cfpga, fpgfile=None, adc_clk=250., logger=None):
         """
         Constructor binds logger, as well as parent attributes (cfpga, etc.). 
         """
@@ -162,7 +162,7 @@ class AlbatrosDigitizer(SparrowAlbatros):
         self.cfpga.write(channel_map, channels.astype(">H").tostring(), offset=0) # .tostring ret bytes
 
     def set_channel_coeffs(self, coeffs, bits):
-        """Coeffs must be type '>I'"""
+        """coeffs must be array of type '>I'"""
         if bits==1:
             self.logger.info("In one bit mode. No need to write coeffs.")
             return 
@@ -282,6 +282,32 @@ class AlbatrosDigitizer(SparrowAlbatros):
         for pol in pols:
             pols_dict[pol] = np.array(struct.unpack(struct_format, self.cfpga.read(pol, 2048*8)), dtype="int64")
         return pols_dict
+
+    def get_optimal_coeffs_from_acc(self, chans):
+        """Reads accumulator to set 4-bit digital gain coefficients
+
+        Assumes fpga is setup and well tuned.
+
+        self : AlbatrosDigitizer object for reading the acc
+        chans : numpy integer array can be used to index accumulator pols"""
+        _pols = self.read_pols(['pol00','pol11'])
+        # these are read as int64 but they are infact 64_35 for autocorr and 64_34 for xcorr
+        pol00,pol11 = _pols['pol00'] / (1<<35), _pols['pol11'] / (1<<35) 
+        acc_len = self.cfpga.registers.acc_len.read_uint() # number of spectra to accumulate
+        pol00_stds = np.sqrt(pol00 / acc_len) # Complex stds = sqrt2 * std in re/im
+        pol11_stds = np.sqrt(pol11 / acc_len) # Complex stds = sqrt2 * std in re/im
+        # for the same channel, we want to apply same digital gain to each pol
+        stds_reim = np.max(np.vstack([pol00_stds, pol11_stds]),axis=0) / np.sqrt(2) # re/im
+        print(stds_reim)
+        quant4_delta = 1/8  # 0.125 is the quantization delta for 4-bit signed 4_3 as on fpga
+                            # clips at plus/minus 0.875
+        quant4_optimal = 0.353 # optimal 15-level quantization delta for gaussian with std=1
+        coeffs = np.zeros(2048) # hard coded num of chans as 2048
+        coeffs[chans] = quant4_delta * quant4_optimal / stds_reim[chans]
+        coeffs[chans] *= 1<<17 # bram is re-interpreted as ufix 32_17
+        coeffs[coeffs > (1<<32)-1] = (1<<32)-1 # clip coeffs at max uint value
+        coeffs = np.array(coeffs + 0.5, dtype='>I')
+        return coeffs
 
     def set_channels(self, channels:list):
         """

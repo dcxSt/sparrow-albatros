@@ -36,13 +36,12 @@ def get_channels_from_str(chan, nbits):
     if nbits==1:
         for i in range(len(chan_start_stop)//2):
             new_chans=np.append(new_chans, np.arange(chan_start_stop[2*i], chan_start_stop[2*i+1], 2, dtype=">H"))
-    elif nbits==2:
-        for i in range(len(chan_start_stop)//2):
-            new_chans=np.append(new_chans, np.arange(chan_start_stop[2*i], chan_start_stop[2*i+1], dtype=">H"))
-    else:
+    elif nbits==4:
         for i in range(len(chan_start_stop)//2):
             chans=np.arange(chan_start_stop[2*i], chan_start_stop[2*i+1], dtype=">H")
             new_chans=np.append(new_chans, np.ravel(np.column_stack((chans, chans))))
+    else:
+        raise ValueError(f'nbits must be 1 or 4, not {nbits}')
     return new_chans
 
 def get_nspec(chans,max_nbyte=1380):
