@@ -295,20 +295,26 @@ class AlbatrosDigitizer(SparrowAlbatros):
         chans : numpy integer array can be used to index accumulator pols"""
         _pols = self.read_pols(['pol00','pol11'])
         # these are read as int64 but they are infact 64_35 for autocorr and 64_34 for xcorr
-        pol00,pol11 = _pols['pol00'] / (1<<35), _pols['pol11'] / (1<<35) 
+        pol00,pol11 = _pols['pol00'] / (1<<36), _pols['pol11'] / (1<<36) 
+        #pol00,pol11 = _pols['pol00'], _pols['pol11'] 
         acc_len = self.cfpga.registers.acc_len.read_uint() # number of spectra to accumulate
         pol00_stds = np.sqrt(pol00 / acc_len) # Complex stds = sqrt2 * std in re/im
         pol11_stds = np.sqrt(pol11 / acc_len) # Complex stds = sqrt2 * std in re/im
+        #MAGIC_FACTOR = 98302.7623 
         # for the same channel, we want to apply same digital gain to each pol
         stds_reim = np.max(np.vstack([pol00_stds, pol11_stds]),axis=0) / np.sqrt(2) # re/im
+        #coeffs=np.zeros(2048)
+        #coeffs[chans]=MAGIC_FACTOR * stds_reim[chans]
         print(stds_reim)
         quant4_delta = 1/8  # 0.125 is the quantization delta for 4-bit signed 4_3 as on fpga
                             # clips at plus/minus 0.875
         quant4_optimal = 0.353 # optimal 15-level quantization delta for gaussian with std=1
         coeffs = np.zeros(2048) # hard coded num of chans as 2048
-        coeffs[chans] = quant4_delta * quant4_optimal / stds_reim[chans]
-        coeffs[chans] *= 1<<17 # bram is re-interpreted as ufix 32_17
-        coeffs[coeffs > (1<<32)-1] = (1<<32)-1 # clip coeffs at max uint value
+        coeffs[chans] = quant4_delta / (stds_reim[chans]  * quant4_optimal)
+        coeffs[chans] *= (1<<18) # bram is re-interpreted as ufix 32_17
+        coeffs[chans] /=2 # not sure where missing factor of two comes from 
+        # sets stds to roughly 2.83 [plus-minus systematic 0.05])
+        coeffs[coeffs > (1<<31)-1] = (1<<31)-1 # clip coeffs at max signed-int value
         coeffs = np.array(coeffs + 0.5, dtype='>I')
         return coeffs
 
