@@ -17,8 +17,8 @@ import struct
 import pcapy
 import dpkt
 
-IP_HEADER_START = 14
-UDP_HEADER_START = IP_HEADER_START + 20
+IP_HEADER_START = 14 # Safe to assume for Ethernet, but not for other link layers
+UDP_HEADER_START = IP_HEADER_START + 20 # 20 bytes is the smallest IPV4 header size w/o options
 UDP_PAYLOAD_START = UDP_HEADER_START + 8 # udp header is 8 bytes
 
 def unpack_4bit(buf):
@@ -33,6 +33,7 @@ def unpack_4bit(buf):
 
 def unpack_packet(packet_raw_eth_frame, bits, spec_per_packet, bytes_per_packet):
     packet = packet_raw_eth_frame[UDP_PAYLOAD_START:UDP_PAYLOAD_START + bytes_per_packet]
+    assert len(packet)==bytes_per_packet, "packet too small" # prob need try-catch
     specno = np.frombuffer(packet, '>I', 1)
     if bits==4:
         vec=unpack_4bit(packet[4:])
@@ -50,16 +51,18 @@ def get_4bit_packet_channel_stats(cap, acc_len, spec_per_packet, bytes_per_packe
     """
     # Read a bunch of packets
     npack=(acc_len + spec_per_packet - 1)//spec_per_packet
-    pol0,pol1=[None]*npack,[None]*npack
+    pol0,pol1,specno=[None]*npack,[None]*npack,[None]*npack
     for i in range(npack):
-        pol0[i],pol1[i] = unpack_packet(cap.next()[1], 4, spec_per_packet, bytes_per_packet)
+        rawpack = cap.next()[1]
+        specno[i] = np.frombuffer(rawpack[UDP_PAYLOAD_START:UDP_PAYLOAD_START + bytes_per_packet], '>I', 1)[0]
+        pol0[i],pol1[i] = unpack_packet(rawpack, 4, spec_per_packet, bytes_per_packet)
     # Estimate stdev in each channel
     pol0,pol1 = np.vstack(pol0)[:acc_len,:], np.vstack(pol1)[:acc_len,:]
     std0re = np.std(np.real(pol0),axis=0)
     std0im = np.std(np.imag(pol0),axis=0)
     std1re = np.std(np.real(pol1),axis=0)
     std1im = np.std(np.imag(pol1),axis=0)
-    return std0re,std0im,std1re,std1im
+    return std0re,std0im,std1re,std1im,pol0,pol1,specno
 
 def write_header(file_object, chans, spec_per_packet, bytes_per_packet, bits):
     have_trimble = True

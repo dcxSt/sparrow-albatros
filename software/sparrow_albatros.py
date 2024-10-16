@@ -177,17 +177,20 @@ class AlbatrosDigitizer(SparrowAlbatros):
         internal state to zero that the sync pulse sets to one. Without
         doing pack_rst and cnt_rst before pulseing the sync, things are 
         not properly synced up and bad things happen."""
+        self.logger.info("Sync adc pulse")
+        self.cfpga.registers.sync_adc.write_int(0) # ADC sync
+        self.cfpga.registers.sync_adc.write_int(1) # ADC sync
+        self.cfpga.registers.sync_adc.write_int(0) # ADC sync
         self.logger.info("Resetting packetizer")
         self.cfpga.registers.pack_rst.write_int(0)
         self.cfpga.registers.pack_rst.write_int(1)
         self.cfpga.registers.pack_rst.write_int(0)
-        self.logger.info("Resetting counters and syncing")
-        self.cfpga.registers.sync_adc.write_int(0) # ADC sync
-        self.cfpga.registers.sync_adc.write_int(1) # ADC sync
-        self.cfpga.registers.sync_adc.write_int(0) # ADC sync
+        self.logger.info("Resetting acc control and syncing")
         self.cfpga.registers.cnt_rst.write_int(0) # Acc control reset pulse 
         self.cfpga.registers.cnt_rst.write_int(1)
         self.cfpga.registers.cnt_rst.write_int(0)
+        self.logger.info("Sending pulse")
+        time.sleep(0.3)
         self.cfpga.registers.sync.write_int(0) # Sync pulse must come after acc cntrl reset
         self.cfpga.registers.sync.write_int(1) 
         self.cfpga.registers.sync.write_int(0) 
