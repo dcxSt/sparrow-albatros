@@ -296,15 +296,11 @@ class AlbatrosDigitizer(SparrowAlbatros):
         _pols = self.read_pols(['pol00','pol11'])
         # these are read as int64 but they are infact 64_35 for autocorr and 64_34 for xcorr
         pol00,pol11 = _pols['pol00'] / (1<<36), _pols['pol11'] / (1<<36) 
-        #pol00,pol11 = _pols['pol00'], _pols['pol11'] 
         acc_len = self.cfpga.registers.acc_len.read_uint() # number of spectra to accumulate
         pol00_stds = np.sqrt(pol00 / acc_len) # Complex stds = sqrt2 * std in re/im
         pol11_stds = np.sqrt(pol11 / acc_len) # Complex stds = sqrt2 * std in re/im
-        #MAGIC_FACTOR = 98302.7623 
         # for the same channel, we want to apply same digital gain to each pol
         stds_reim = np.max(np.vstack([pol00_stds, pol11_stds]),axis=0) / np.sqrt(2) # re/im
-        #coeffs=np.zeros(2048)
-        #coeffs[chans]=MAGIC_FACTOR * stds_reim[chans]
         print(stds_reim)
         quant4_delta = 1/8  # 0.125 is the quantization delta for 4-bit signed 4_3 as on fpga
                             # clips at plus/minus 0.875
