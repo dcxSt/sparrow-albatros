@@ -323,6 +323,42 @@ class AlbatrosDigitizer(SparrowAlbatros):
         # TODO: implement this
         return 
 
+    def get_adc_stats(self):
+        """
+        
+        ss_adc_ctrl register
+        bit0: Put a posedge here to enable a new capture.
+        bit1: Ignore external trigger and trigger immediately.
+        bit2: Ignore external write enable and capture on every FPGA clock.
+        bit3: Continuously capture data until we get an external stop command.
+        bits4-to-31: 28 bits for number of valid data samples to skip after trigger before starting capture. 
+
+        To capture a snapshot, I assume 'a capture' fills the whole BRAM with 
+        ADC samples. I think we want to pulse bit0, hold bit1 high, bit2 high, 
+        bit3 low. These first four bits are the LSBs, the LSB is bit0, because
+        it is sliced out and pos-edged. Therefore bitN must be the N'th LSB.
+        """
+        #mask_skip =0xfffffff0
+        #mask_capt =0b1000
+        #mask_trig =0b0110
+        #mask_pulse=0b0001
+        #skip =0b1<<26 # wait 0.5 seconds ~1<<(15+12-1), mostly out of superstition
+        #trig =0b11
+        #capt =0b0  # hold this low to not continuously capture data (?) uncertain
+        #ctrl_pulse_on =((skip<<4) & mask_skip) | ((capt<<3) & mask_capt) | ((trig<<1) & mask_trig) | (0b1 & mask_pulse)  
+        #ctrl_pulse_off=((skip<<4) & mask_skip) | ((capt<<3) & mask_capt) | ((trig<<1) & mask_trig) | (0b0 & mask_pulse)  
+        #adc_stats={}
+        ## TODO
+        self.logger.warning("get_adc_stats not yet implemented")
+        return None
+
+    def read_registers(self, regs):
+        """regs is a list of register names, reads uint and returns dict of vals"""
+        reg_dict = {}
+        for r in regs:
+            reg_dict[r] = np.array(self.cfpga.registers[r].read_uint())
+        return reg_dict
+
 
 
 
