@@ -195,6 +195,9 @@ if __name__=="__main__":
     # Autotuning
     if BITS==4:
         coeffs = sparrow.get_optimal_coeffs_from_acc(chans_fpga[::2])
+        sparrow.set_channel_coeffs(coeffs, 4)
+        with open(f"hacky_coeffs_dump_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt","w") as f:
+            for i in coeffs:f.write(str(i)+",")
 
     # Figure out drive situation
     # TODO
