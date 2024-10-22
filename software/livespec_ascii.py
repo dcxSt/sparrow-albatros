@@ -41,7 +41,7 @@ args = parser.parse_args()
 minfreq = args.minfreq
 maxfreq = args.maxfreq
 assert minfreq>=0, "Minfreq must be greater than zero"
-assert maxfreq<=250, "Maxfreq must be lesser than 250 MHz"
+assert maxfreq<=125, "Maxfreq must be lesser than 250 MHz"
 
 # Init the logger, make it print to terminal
 logger=logging.getLogger("my_logger")
@@ -74,7 +74,7 @@ while True:
     pol00,pol11=pols["pol00"],pols["pol11"]
     # 25 MHz is 250 MHz/10 so it's channel 2048/10 = 205
     width=80
-    idxs = np.arange(int(minfreq*2048/250), int(maxfreq*2048/250))
+    idxs = np.arange(int(minfreq*2048/125), int(maxfreq*2048/125))
     width=len(idxs)
     height=width//3
     ascii_plot(10*np.log10(pol00[idxs]),10*np.log10(pol11[idxs]),minfreq,maxfreq,
