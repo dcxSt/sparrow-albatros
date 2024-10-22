@@ -61,9 +61,9 @@ class SparrowAlbatros():
         """
         Send a sync pulse to the ADC
         """
-        self.cfpga.write_int("sync", 0)
-        self.cfpga.write_int("sync", 1)
-        self.cfpga.write_int("sync", 0)
+        self.cfpga.write_int("sync_adc", 0)
+        self.cfpga.write_int("sync_adc", 1)
+        self.cfpga.write_int("sync_adc", 0)
 
     def get_adc_temp(self):
         """
@@ -177,10 +177,6 @@ class AlbatrosDigitizer(SparrowAlbatros):
         internal state to zero that the sync pulse sets to one. Without
         doing pack_rst and cnt_rst before pulseing the sync, things are 
         not properly synced up and bad things happen."""
-        self.logger.info("Sync adc pulse")
-        self.cfpga.registers.sync_adc.write_int(0) # ADC sync
-        self.cfpga.registers.sync_adc.write_int(1) # ADC sync
-        self.cfpga.registers.sync_adc.write_int(0) # ADC sync
         self.logger.info("Resetting packetizer")
         self.cfpga.registers.pack_rst.write_int(0)
         self.cfpga.registers.pack_rst.write_int(1)
