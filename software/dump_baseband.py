@@ -11,8 +11,6 @@ import utils
 import logging
 import datetime
 import lbtools_l
-#from pcapy import open_live
-import socket
 import struct
 import pcapy
 import dpkt
@@ -148,6 +146,7 @@ if __name__=="__main__":
     CHANNELS_STRING=config_file.get("baseband", "channels")
     BITS=config_file.getint("baseband", "bits") # 1 or 4
     FPGFILE=config_file.get("paths", "fpgfile")
+    COEFFS_BINARY_PATH=config_file.get("paths", "coeffs_binary_path")
     ADC_CLK=config_file.getint("baseband", "adc_clk")
 
     ## Construct FPGA and AlbatrosDigitizer (SparrowAlbatros) object without tuning
@@ -172,7 +171,8 @@ if __name__=="__main__":
     #sock.bind(('eth0', 0))
     snaplen, promisc, timeout_ms = 65535, 1, 1000
     cap = pcapy.open_live('eth0', snaplen, promisc, timeout_ms)
-    cap.setfilter("udp and dst port 7417 and dst host 10.10.11.99 and src host 192.168.41.10") 
+    #cap.set_buffer_size(200 * 1024 * 1024)
+    cap.setfilter("udp and dst port 7417 and dst host 10.10.11.99 and src host 192.168.41.10")
     UDP_PORT = 7417
 
     chans_fpga=utils.get_channels_from_str(CHANNELS_STRING, BITS)
@@ -194,11 +194,14 @@ if __name__=="__main__":
     
     # Autotuning
     if BITS==4:
-        coeffs = sparrow.get_optimal_coeffs_from_acc(chans_fpga[::2])
+        logger.warning(f"Polling accumulators to get coeffs, need to wait at least two accs before doing this reliably.")
+        coeffs = sparrow.get_optimal_coeffs_from_acc(chans_fpga[::2]) # dtype '>I', big endian long
         sparrow.set_channel_coeffs(coeffs, 4)
-        with open(f"hacky_coeffs_dump_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt","w") as f:
-            for i in coeffs:f.write(str(i)+",")
-
+        # little endian uint64 '<Q', easier to read for C program
+        coeffs_to_serialize = np.array(coeffs[chans_fpga[::2]],dtype='<Q')
+        with open(COEFFS_BINARY_PATH,"wb") as f:
+            f.write(coeffs_to_serialize.tobytes())
+            logger.info(f"Coeffs written to temp file: {COEFFS_BINARY_PATH}")
     # Figure out drive situation
     # TODO
     # copy from here: https://github.com/ALBATROS-Experiment/albatros_daq/blob/py38_port/new_daq/dump_baseband.py#L27
@@ -208,15 +211,17 @@ if __name__=="__main__":
     bbpath="/media/BASEBAND/baseband"
     assert os.path.isdir(bbpath), "Drive not mounted, crashing program"
     print("bytes_per_packet", bytes_per_packet)
+    #input("[Enter to continue, ^c to exit]")
     while True:
         dirtime=str(int(time.time()))[:5] # first five digitis of ctime
         if not os.path.isdir(join(bbpath, dirtime)):
             os.mkdir(join(bbpath, dirtime))
         fname=f"{int(time.time())}.raw"
         fpath=join(bbpath, dirtime, fname)
-        with open(fpath, "wb", buffering=1024*1024) as bbfile:
+        with open(fpath, "wb", buffering=20*1024*1024) as bbfile:
             write_header(bbfile, chans_fpga, spec_per_packet, bytes_per_packet, BITS)
             for i in range(num_of_packets_per_file):
+                #print(i,end=',')
                 try:
                     (header, packet) = cap.next()
                     bbfile.write(packet[UDP_PAYLOAD_START:UDP_PAYLOAD_START + bytes_per_packet])

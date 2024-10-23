@@ -35,6 +35,7 @@ typedef struct {
 
 // Parse chans in config.ini format (e.g. chans=190:210 220:230)
 // value is the chans string
+// TODO: Fix this!
 void parse_chans(const char* value, config_t* config) {
     // Count the number of ranges (space-separated)
     char* str_copy = strdup(value); // Copy input string to avoid modifying it
@@ -152,7 +153,7 @@ int set_coeffs_from_serialized_binary(config_t* pconfig) {
 
 // Needs to yield same result as function get_nspec in utils.py 
 uint64_t get_nspec(uint64_t lenchans, uint64_t max_nbyte) {
-    uint64_t nspec = max_nbyte / lenchans;
+    uint64_t nspec = max_nbyte / (2 * lenchans); // in 4bit mode only
     if (nspec > 30) {
         nspec = 30;
     } else if (nspec < 1) {
@@ -178,7 +179,7 @@ config_t get_config_from_ini(const char* filename) {
         exit(1);
     }
     config.bytes_per_specnum = 4;
-    config.bytes_per_spec = config.lenchans * sizeof(uint64_t);
+    config.bytes_per_spec = config.lenchans * 2; // in 4bit mode only, in 1bit mode this will be different
     config.spec_per_packet = get_nspec(config.lenchans, config.max_bytes_per_packet);
     config.bytes_per_packet = (config.spec_per_packet * config.bytes_per_spec) + config.bytes_per_specnum;
     printf("bytes_per_spec: %d\n", (int)config.bytes_per_spec);
@@ -355,11 +356,12 @@ int main() {
     // TODO: Figure out how many files we can write to this drive based on how much space there 
     // is on drive, the size of each file, and the drive safety parameter which sets the maximum
     // fullness of the drives
-    int n_files_to_write = 5; // dummy
+    int n_files_to_write = 500; // dummy
     // TODO: Figure out how many packets to write per file
     int packets_per_file = get_packets_per_file(&config);
     printf("packets_per_file: %d\n", packets_per_file);
     
+    uint32_t specno_end_prev_file = 0;
     for (int i = 0; i < n_files_to_write; i++) {
         // Create directory if it doesn't exist
         char timestamp[20]; // big enough to hold the timestamp as a string
@@ -398,7 +400,6 @@ int main() {
         // Capture and write packets_per_file packets
         uint32_t specno_start;
         uint32_t specno_end;
-        uint32_t specno_end_prev = 0;
         for (int i = 0; i < packets_per_file; i++) {
             struct pcap_pkthdr header;
             const u_char *packet = pcap_next(handle, &header);
@@ -421,12 +422,12 @@ int main() {
                 fprintf(stderr, "Failed to write all bytes to file\n");
             }
         }
-        printf("Dropped packets within file %.5f%% percent\n", 100 * ((double)specno_end - (double)specno_start + (double)config.spec_per_packet) / ((double)config.spec_per_packet * (double)packets_per_file));
-        if (specno_end_prev != 0) printf("Dropped packets between files %.2f%%\n", ((double)specno_start - ((double)specno_end_prev + (double)config.spec_per_packet)) / (double)config.spec_per_packet);
-        specno_end_prev = specno_end;
-        printf("specno_end_prev %d\n", specno_end_prev);
-        printf("specno_start %d\n", specno_start);
-        printf("specno_end %d\n", specno_end);
+        printf("Dropped packets within file %.8f%%\n", 100 - (100 * ((double)config.spec_per_packet * (double)packets_per_file) / ((double)specno_end - (double)specno_start + (double)config.spec_per_packet)));
+        printf("Dropped packets between files %.2f\n", ((double)specno_start - ((double)specno_end_prev_file + (double)config.spec_per_packet)) / (double)config.spec_per_packet);
+        //printf("specno_end_prev_file %d\n", specno_end_prev_file);
+        //printf("specno_start %d\n", specno_start);
+        //printf("specno_end %d\n", specno_end);
+        specno_end_prev_file = specno_end;
         fclose(file);       // Close the file
         free(buffer);       // Clean up mallocated file-buffer space
     }
