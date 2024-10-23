@@ -12,7 +12,7 @@
 
 
 
-void write_header(FILE *file, uint64_t *chans, uint64_t *coeffs, uint64_t lenchans, uint64_t spec_per_packet, uint64_t bytes_per_packet, uint64_t bits);
+size_t write_header(FILE *file, uint64_t *chans, uint64_t *coeffs, uint64_t lenchans, uint64_t spec_per_packet, uint64_t bytes_per_packet, uint64_t bits);
 
 
 

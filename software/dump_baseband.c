@@ -2,10 +2,16 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 #include <arpa/inet.h>
+#include <time.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <arpa/inet.h> // for ntohl network to host long
 #include "dump_baseband.h"
 #include "ini.h" // Ensure inih is installed
 
+#define CONFIGINI_PATH "/home/casper/sparrow-albatros/software/config.ini"
 #define MAX_STRING_LENGTH 256 // Define a reasonable limit for strings
 
 // Struct for things to parse from config.ini and to write bb file header
@@ -14,14 +20,21 @@ typedef struct {
     uint64_t* coeffs;
     uint64_t lenchans;
     uint64_t spec_per_packet;
+    uint64_t bytes_per_specnum;
     uint64_t bytes_per_spec;
     uint64_t bytes_per_payload_specnum;
     uint64_t bytes_per_packet;
     uint64_t bits;
     char dump_spectra_output_directory[MAX_STRING_LENGTH];
+    char dump_baseband_output_directory[MAX_STRING_LENGTH];
+    char log_directory[MAX_STRING_LENGTH];
+    char coeffs_binary_path[MAX_STRING_LENGTH];
+    double file_size;
+    uint64_t max_bytes_per_packet;
 } config_t;
 
 // Parse chans in config.ini format (e.g. chans=190:210 220:230)
+// value is the chans string
 void parse_chans(const char* value, config_t* config) {
     // Count the number of ranges (space-separated)
     char* str_copy = strdup(value); // Copy input string to avoid modifying it
@@ -32,53 +45,146 @@ void parse_chans(const char* value, config_t* config) {
         if (colon != NULL) {
             uint64_t start = strtoull(token, NULL, 10);
             uint64_t end = strtoull(colon + 1, NULL, 10);
-            count += (end - start + 1); // Add size of range
+            count += (end - start); // Add size of range
         }
         token = strtok(NULL, " ");
     }
+    free(str_copy);
+    // Allocate memory for chans (and coeffs, because they're going to be the same)
+    config->chans = (uint64_t*)malloc(count * sizeof(uint64_t));
+    config->coeffs = (uint64_t*)malloc(count * sizeof(uint64_t));
+    config->lenchans = (uint64_t)count;
+    // Parse the string again to fill chans
+    str_copy = strdup(value);
+    token = strtok(str_copy, " ");
+    size_t index = 0;
+    while (token != NULL) {
+        char* colon = strchr(token, ':');
+        if (colon != NULL) {
+            uint64_t start = strtoull(token, NULL, 10);
+            uint64_t end = strtoull(colon + 1, NULL, 10);
+            for (uint64_t i = start; i < end; i++) {
+                config->chans[index++] = i;
+            }
+        }
+        token = strtok(NULL, " ");
+    }
+    free(str_copy);
 }
 
 // Callback function for parsing the ini file
-static int ini_handler(void* user, const char* section, const char* name, const char* value) {
+static int my_ini_handler(void* user, const char* section, const char* name, const char* value) {
     config_t* pconfig = (config_t*)user;
 
-    if (strcmp(section, "Settings") == 0) {
-        if (strcmp(name, "chans") == 0) {
-            // Count the number of elements
-            size_t num_chans = count_commas(value);
-            pconfig->chans = (uint64_t*)malloc(num_chans * sizeof(uint64_t));
-
-            // Parse and fill the chans array
-            char* token = strtok((char*)value, ",");
-            size_t i = 0;
-            while (token != NULL) {
-                pconfig->chans[i++] = strtoull(token, NULL, 10);
-                token = strtok(NULL, ",");
-            }
-            pconfig->lenchans = num_chans; // Set the number of channels
-        } else if (strcmp(name, "coeffs") == 0) {
-            // Count the number of elements
-            size_t num_coeffs = count_commas(value);
-            pconfig->coeffs = (uint64_t*)malloc(num_coeffs * sizeof(uint64_t));
-
-            // Parse and fill the coeffs array
-            char* token = strtok((char*)value, ",");
-            size_t i = 0;
-            while (token != NULL) {
-                pconfig->coeffs[i++] = strtoull(token, NULL, 10);
-                token = strtok(NULL, ",");
-            }
-        } else if (strcmp(name, "spec_per_packet") == 0) {
-            pconfig->spec_per_packet = strtoull(value, NULL, 10);
-        } else if (strcmp(name, "bytes_per_spec") == 0) {
-            pconfig->bytes_per_spec = strtoull(value, NULL, 10);
-        } else if (strcmp(name, "bytes_per_payload_specnum") == 0) {
-            pconfig->bytes_per_payload_specnum = strtoull(value, NULL, 10);
+    if (strcmp(section, "baseband") == 0) {
+        if (strcmp(name, "channels") == 0) {
+            parse_chans(value, pconfig); // Use custom parser for chans, also defines lenchans
+        } else if (strcmp(name, "file_size") == 0) {
+            pconfig->file_size = strtod(value, NULL); // string to double
         } else if (strcmp(name, "bits") == 0) {
-            pconfig->bits = strtoull(value, NULL, 10);
+            pconfig->bits = strtoul(value, NULL, 10);
+        }
+    } else if (strcmp(section, "paths") == 0) {
+        if (strcmp(name, "dump_spectra_output_directory") == 0) {
+            strncpy(pconfig->dump_spectra_output_directory, value, sizeof(pconfig->dump_spectra_output_directory) - 1);
+            pconfig->dump_spectra_output_directory[sizeof(pconfig->dump_spectra_output_directory) - 1] = '\0';
+        } else if (strcmp(name, "dump_baseband_output_directory") == 0) {
+            strncpy(pconfig->dump_baseband_output_directory, value, sizeof(pconfig->dump_baseband_output_directory) - 1);
+            pconfig->dump_baseband_output_directory[sizeof(pconfig->dump_baseband_output_directory) - 1] = '\0';
+        } else if (strcmp(name, "log_directory") == 0) {
+            strncpy(pconfig->log_directory, value, sizeof(pconfig->log_directory) - 1);
+            pconfig->log_directory[sizeof(pconfig->log_directory) - 1] = '\0';
+        } else if (strcmp(name, "coeffs_binary_path") == 0) {
+            strncpy(pconfig->coeffs_binary_path, value, sizeof(pconfig->coeffs_binary_path) - 1);
+            pconfig->coeffs_binary_path[sizeof(pconfig->coeffs_binary_path) - 1] = '\0';
+        }
+    } else if (strcmp(section, "networking") == 0) {
+        if (strcmp(name, "max_bytes_per_packet") == 0) {
+            pconfig->max_bytes_per_packet = strtoul(value, NULL, 10);
         }
     }
     return 1; // Continue parsing
+}
+
+int set_coeffs_from_serialized_binary(config_t* pconfig) {
+    FILE *file = fopen(pconfig->coeffs_binary_path, "rb");
+    if (file == NULL) {
+        perror("Error opening file");
+        return 1;
+    }
+    // Move to the end of the file to determine its size
+    fseek(file, 0, SEEK_END);
+    long file_size = ftell(file);
+    rewind(file);
+    if (file_size < 0) {
+        perror("Failed to get file size");
+        fclose(file);
+        return 1;
+    }
+    // Ensure the file size is a multiple of uint64_t
+    if (file_size % sizeof(uint64_t) != 0) {
+        fprintf(stderr, "File size is not a multiple of uint64_t\n");
+        fclose(file);
+        return 1;
+    }
+    // Calculate the number of uint64_t elements
+    size_t num_elements = file_size / sizeof(uint64_t);
+    // Ensure num_elements corresopnds to lenchans
+    if ((uint64_t)num_elements != pconfig->lenchans) {
+        printf("num_elements: %d\n", num_elements);
+        printf("lenchans: %d\n", (int)pconfig->lenchans);
+        perror("Number of elements in serialized coeffs file does not match lenchans\n");
+        fclose(file);
+        return 1;
+    }
+    // Memory has already been allocated
+    // Read the entire file into the array
+    size_t read_elements = fread(pconfig->coeffs, sizeof(uint64_t), num_elements, file);
+    if (read_elements != num_elements) {
+        perror("Failed to read file");
+        fclose(file);
+        return 1;
+    }
+    fclose(file);
+    return 0;
+}
+
+
+// Needs to yield same result as function get_nspec in utils.py 
+uint64_t get_nspec(uint64_t lenchans, uint64_t max_nbyte) {
+    uint64_t nspec = max_nbyte / lenchans;
+    if (nspec > 30) {
+        nspec = 30;
+    } else if (nspec < 1) {
+        printf("WARNING: nspec<1, packets may be fragmented.");
+        nspec = 1;
+    }
+    return nspec;
+}
+
+config_t get_config_from_ini(const char* filename) {
+    config_t config;
+    // Initialize pointers to NULL before allocation
+    config.chans = NULL;
+    config.coeffs = NULL;
+    // Parse the INI file
+    if (ini_parse(filename, my_ini_handler, &config) < 0) {
+        printf("Can't load config.ini\n");
+        exit(1);
+    }
+    // coeffs memory has already been allocated,
+    if (set_coeffs_from_serialized_binary(&config) != 0) {
+        printf("Can't load coeffs from serialized binary.\n");
+        exit(1);
+    }
+    config.bytes_per_specnum = 4;
+    config.bytes_per_spec = config.lenchans * sizeof(uint64_t);
+    config.spec_per_packet = get_nspec(config.lenchans, config.max_bytes_per_packet);
+    config.bytes_per_packet = (config.spec_per_packet * config.bytes_per_spec) + config.bytes_per_specnum;
+    printf("bytes_per_spec: %d\n", (int)config.bytes_per_spec);
+    printf("spec_per_packet: %d\n", (int)config.spec_per_packet);
+    printf("bytes_per_packet: %d\n", (int)config.bytes_per_packet);
+    return config;
 }
 
 uint64_t to_big_endian(uint64_t value) {
@@ -111,10 +217,10 @@ double to_big_endian_double(double value) {
 //    return result;
 //}
 
-void write_header(FILE *file, uint64_t *chans, uint64_t *coeffs, uint64_t lenchans, uint64_t spec_per_packet, uint64_t bytes_per_packet, uint64_t bits) {
+size_t write_header(FILE *file, uint64_t *chans, uint64_t *coeffs, uint64_t lenchans, uint64_t spec_per_packet, uint64_t bytes_per_packet, uint64_t bits) {
     uint64_t have_gps = 1; // bool, 1-true, 0-false
+    // Total number of bytes in header, including bytes for header_bytes
     uint64_t header_bytes = (11 + 2 * lenchans) * 8; // 2xlenchans for coeffs
-    //uint64_t header_bytes = 8 * 10 + 8 * lenchans; // add smt for coeffs
     // TODO: Read LeoBodnar, for now, dummy 
     uint64_t gps_week  = 0; // This is set to zero for whatever reason
     uint64_t gps_time  = 0; // IRL read gps time with lbtools
@@ -131,10 +237,12 @@ void write_header(FILE *file, uint64_t *chans, uint64_t *coeffs, uint64_t lencha
         to_big_endian(gps_week),         // 7
         to_big_endian(gps_time)          // 8
     };
+    size_t header_bytes_written = 0;
     size_t elements_written = fwrite(file_header0, sizeof(uint64_t), 8, file);
     if (elements_written != 8) {
         perror("Error writing header-preamble to file");
     }
+    header_bytes_written += elements_written * sizeof(uint64_t);
     double file_header1[] = {
         to_big_endian_double(lattitude), // 9
         to_big_endian_double(longitude), // 10
@@ -144,15 +252,51 @@ void write_header(FILE *file, uint64_t *chans, uint64_t *coeffs, uint64_t lencha
     if (elements_written != 3) {
         perror("Error writing header-gps to file");
     }
+    header_bytes_written += elements_written * sizeof(double);
     elements_written = fwrite(chans, sizeof(uint64_t), (size_t)lenchans, file);
     if (elements_written != (size_t)lenchans) {
         perror("Error writing header-chans to file");
     }
+    header_bytes_written += elements_written * sizeof(uint64_t);
     elements_written = fwrite(coeffs, sizeof(uint64_t), (size_t)lenchans, file);
     if (elements_written != (size_t)lenchans) {
         perror("Error writing header-coeffs to file");
     }
-    return;
+    header_bytes_written += elements_written * sizeof(uint64_t);
+    if (header_bytes_written != (size_t)header_bytes) {
+        perror("Error! Header bytes was not correctly computed");
+    }
+    return header_bytes_written;
+}
+
+int get_packets_per_file(config_t* config) {
+    double file_size_bytes = 1024 * 1024 * 1024 * config->file_size; // double
+    // To get the header size, we hack write_header_file and make sure everything is alright
+    FILE *null_file = fopen("/dev/null","wb");
+    if (null_file == NULL) return -1;
+    size_t header_bytes = write_header(null_file, config->chans, config->coeffs, config->lenchans, config->spec_per_packet, config->bytes_per_packet, config->bits);
+    fclose(null_file);
+    int n_packets_per_file = ((int)file_size_bytes - (int)header_bytes) / (int)config->bytes_per_packet;
+    // config->bytes_per_packet is uint64
+    return n_packets_per_file;
+}
+
+int create_directory_if_not_exists(char* path) {
+    struct stat st = {0};
+    // Check if the directory exists
+    if (stat(path, &st) == -1) {
+        // Directory doesn't exist, create it
+        if (mkdir(path, 0777) == 0) {
+            printf("Directory created successfully: %s\n", path);
+            return 0;
+        } else {
+            perror("Failed to create directory\n");
+            return -1;
+        }
+    } else {
+        printf("Directory already exists: %s\n", path);
+        return 1;
+    }
 }
 
 int main() {
@@ -203,57 +347,117 @@ int main() {
         return 1;
     }
 
-    // Open a binary file to write
-    // TODO: implement proper file location on disk
-    FILE *file = fopen("out.bin", "wb");
-    if (file == NULL) {
-        perror("Error opening file");
-        return 1;
-    }
-    // Set the buffer size to 20 MB
-    size_t buffer_size = 20 * 1024 * 1024;
-    char *buffer = malloc(buffer_size); // Allocate buffer
-    if (setvbuf(file, buffer, _IOFBF, buffer_size) != 0) {
-        perror("Error setting buffer");
-        return 1;
-    }
-    // Write the header
-    // TODO: get chans, lenchans, spec_per_packet, bytes_per_packet, bits, for now dummy
-    uint64_t chans[] = {190,191,192,193,194,195,196,197,198,199,200,201,202,203,204,205,206,207,208,209};
-    uint64_t coeffs[] = {500,501,502,503,504,505,506,507,508,509,510,511,512,513,514,515,516,517,518,519};
-    uint64_t lenchans = 20;
-    uint64_t spec_per_packet = 30;
-    uint64_t bytes_per_spec = 2 * 20;
-    uint64_t bytes_per_payload_specnum = 4; // in firmware
-    uint64_t bytes_per_packet = spec_per_packet * bytes_per_spec + bytes_per_payload_specnum;
-    uint64_t bits = 4; // 4 or 1
-    write_header(file, chans, coeffs, lenchans, spec_per_packet, bytes_per_packet, bits);
+    // Parse config.ini
+    config_t config = get_config_from_ini(CONFIGINI_PATH);
+    // Get coeffs
 
-    // Capture and write packets_per_file packets
-    int packets_per_file = 6;
-    for (int i = 0; i < packets_per_file; i++) {
-        struct pcap_pkthdr header;
-        const u_char *packet = pcap_next(handle, &header);
-        if (packet == NULL) {
-            printf("Failed to capture a packet\n");
+    // TODO: Figure out how much space there is on drive
+    // TODO: Figure out how many files we can write to this drive based on how much space there 
+    // is on drive, the size of each file, and the drive safety parameter which sets the maximum
+    // fullness of the drives
+    int n_files_to_write = 5; // dummy
+    // TODO: Figure out how many packets to write per file
+    int packets_per_file = get_packets_per_file(&config);
+    printf("packets_per_file: %d\n", packets_per_file);
+    
+    for (int i = 0; i < n_files_to_write; i++) {
+        // Create directory if it doesn't exist
+        char timestamp[20]; // big enough to hold the timestamp as a string
+        time_t raw_time;
+        raw_time = time(NULL); // Get current time
+        snprintf(timestamp, sizeof(timestamp), "%ld", (long)raw_time); // Convert the time to a string
+        char sliced_timestamp[6]; // Slice of first 5 chars (+1 for null pointer) of ctime timestamp
+        strncpy(sliced_timestamp, timestamp, 5);
+        sliced_timestamp[5] = '\0'; // Set null pointer at end of array
+        char bbfiledir[MAX_STRING_LENGTH + MAX_STRING_LENGTH]; // five digit directory, create if DNE
+        snprintf(bbfiledir, sizeof(bbfiledir), "%s/%s", config.dump_baseband_output_directory, sliced_timestamp);
+        int create_dir_result = create_directory_if_not_exists(bbfiledir);
+        if (create_dir_result == -1) return 1;
+
+        // Open a binary file to write
+        char bbfilepath[MAX_STRING_LENGTH + MAX_STRING_LENGTH];
+        snprintf(bbfilepath, sizeof(bbfilepath), "%s/%s/%s.raw", config.dump_baseband_output_directory, sliced_timestamp, timestamp);
+        FILE *file = fopen(bbfilepath, "wb");
+        printf("Writing to %s\n", bbfilepath);
+        if (file == NULL) {
+            perror("Error opening file");
             return 1;
         }
-        printf("Captured a packet with length: %d\n", header.len);
-        // Parse the packet, assumes already filtered correctly
-        // Write the packet to the binary file, use pointer arithmetic to seek payload starting point
-        size_t bytes_written = fwrite(packet + UDP_PAYLOAD_START, 1, (size_t)bytes_per_packet, file);
-        if (bytes_written != (size_t)bytes_per_packet) {
-            fprintf(stderr, "Failed to write all bytes to file\n");
-        }
-    }
 
+        // Set the buffer size to 20 MB (file write buffer)
+        size_t buffer_size = 20 * 1024 * 1024;
+        char *buffer = malloc(buffer_size); // Allocate buffer
+        if (setvbuf(file, buffer, _IOFBF, buffer_size) != 0) {
+            perror("Error setting buffer");
+            return 1;
+        }
+
+        // Write the header
+        size_t header_bytes = write_header(file, config.chans, config.coeffs, config.lenchans, config.spec_per_packet, config.bytes_per_packet, config.bits);
+
+        // Capture and write packets_per_file packets
+        uint32_t specno_start;
+        uint32_t specno_end;
+        uint32_t specno_end_prev = 0;
+        for (int i = 0; i < packets_per_file; i++) {
+            struct pcap_pkthdr header;
+            const u_char *packet = pcap_next(handle, &header);
+            if (packet == NULL) {
+                printf("Failed to capture a packet\n");
+                return 1;
+            }
+            //printf("Captured a packet with length: %d\n", header.len);
+            // Parse the packet, assumes already filtered correctly
+            // Write the packet to the binary file, use pointer arithmetic to seek payload starting point
+            if (i == 0) {
+                memcpy(&specno_start, packet + UDP_PAYLOAD_START, sizeof(uint32_t));
+                specno_start = ntohl(specno_start);
+            } else if (i == packets_per_file - 1) {
+                memcpy(&specno_end, packet + UDP_PAYLOAD_START, sizeof(uint32_t));
+                specno_end = ntohl(specno_end);
+            }
+            size_t bytes_written = fwrite(packet + UDP_PAYLOAD_START, 1, (size_t)config.bytes_per_packet, file);
+            if (bytes_written != (size_t)config.bytes_per_packet) {
+                fprintf(stderr, "Failed to write all bytes to file\n");
+            }
+        }
+        printf("Dropped packets within file %.5f%% percent\n", 100 * ((double)specno_end - (double)specno_start + (double)config.spec_per_packet) / ((double)config.spec_per_packet * (double)packets_per_file));
+        if (specno_end_prev != 0) printf("Dropped packets between files %.2f%%\n", ((double)specno_start - ((double)specno_end_prev + (double)config.spec_per_packet)) / (double)config.spec_per_packet);
+        specno_end_prev = specno_end;
+        printf("specno_end_prev %d\n", specno_end_prev);
+        printf("specno_start %d\n", specno_start);
+        printf("specno_end %d\n", specno_end);
+        fclose(file);       // Close the file
+        free(buffer);       // Clean up mallocated file-buffer space
+    }
     // Cleanup
-    fclose(file);       // Close the file
-    free(buffer);       // Clean up mallocated buffer space
     pcap_freecode(&fp); // Free the compiled filter
     pcap_close(handle); // Close the handle
     return 0;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
