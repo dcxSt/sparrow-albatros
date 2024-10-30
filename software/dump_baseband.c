@@ -8,30 +8,8 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <arpa/inet.h> // for ntohl network to host long
-#include "dump_baseband.h"
 #include "ini.h" // Ensure inih is installed
-
-#define CONFIGINI_PATH "/home/casper/sparrow-albatros/software/config.ini"
-#define MAX_STRING_LENGTH 256 // Define a reasonable limit for strings
-
-// Struct for things to parse from config.ini and to write bb file header
-typedef struct {
-    uint64_t* chans;
-    uint64_t* coeffs;
-    uint64_t lenchans;
-    uint64_t spec_per_packet;
-    uint64_t bytes_per_specnum;
-    uint64_t bytes_per_spec;
-    uint64_t bytes_per_payload_specnum;
-    uint64_t bytes_per_packet;
-    uint64_t bits;
-    char dump_spectra_output_directory[MAX_STRING_LENGTH];
-    char dump_baseband_output_directory[MAX_STRING_LENGTH];
-    char log_directory[MAX_STRING_LENGTH];
-    char coeffs_binary_path[MAX_STRING_LENGTH];
-    double file_size;
-    uint64_t max_bytes_per_packet;
-} config_t;
+#include "dump_baseband.h"
 
 // Parse chans in config.ini format (e.g. chans=190:210 220:230)
 // value is the chans string
@@ -76,7 +54,6 @@ void parse_chans(const char* value, config_t* config) {
 // Callback function for parsing the ini file
 static int my_ini_handler(void* user, const char* section, const char* name, const char* value) {
     config_t* pconfig = (config_t*)user;
-
     if (strcmp(section, "baseband") == 0) {
         if (strcmp(name, "channels") == 0) {
             parse_chans(value, pconfig); // Use custom parser for chans, also defines lenchans
@@ -84,6 +61,8 @@ static int my_ini_handler(void* user, const char* section, const char* name, con
             pconfig->file_size = strtod(value, NULL); // string to double
         } else if (strcmp(name, "bits") == 0) {
             pconfig->bits = strtoul(value, NULL, 10);
+        } else if (strcmp(name, "version") == 0) {
+            pconfig->version = strtoul(value, NULL, 10);
         }
     } else if (strcmp(section, "paths") == 0) {
         if (strcmp(name, "dump_spectra_output_directory") == 0) {
@@ -218,41 +197,46 @@ double to_big_endian_double(double value) {
 //    return result;
 //}
 
-size_t write_header(FILE *file, uint64_t *chans, uint64_t *coeffs, uint64_t lenchans, uint64_t spec_per_packet, uint64_t bytes_per_packet, uint64_t bits) {
+size_t write_header(FILE *file, uint64_t *chans, uint64_t *coeffs, uint64_t version, uint64_t lenchans, uint64_t spec_per_packet, uint64_t bytes_per_packet, uint64_t bits) {
     uint64_t have_gps = 1; // bool, 1-true, 0-false
     // Total number of bytes in header, including bytes for header_bytes
-    uint64_t header_bytes = (11 + 2 * lenchans) * 8; // 2xlenchans for coeffs
+    uint64_t header_bytes = (12 + 2 * lenchans) * sizeof(uint64_t); // 2xlenchans for coeffs
     // TODO: Read LeoBodnar, for now, dummy 
     uint64_t gps_week  = 0; // This is set to zero for whatever reason
     uint64_t gps_time  = 0; // IRL read gps time with lbtools
     uint64_t lattitude = 0; // IRL read gps time with lbtools
     uint64_t longitude = 0; // IRL read gps time with lbtools
     uint64_t elevation = 0; // IRL read gps time with lbtools
-    uint64_t file_header0[] = {
+    #define FH0SIZE 9
+    uint64_t file_header0[FH0SIZE] = {
         to_big_endian(header_bytes),     // 1
-        to_big_endian(bytes_per_packet), // 2
-        to_big_endian(lenchans),         // 3
-        to_big_endian(spec_per_packet),  // 4
-        to_big_endian(bits),             // 5
-        to_big_endian(have_gps),         // 6
-        to_big_endian(gps_week),         // 7
-        to_big_endian(gps_time)          // 8
+        to_big_endian(version),          // 2
+        to_big_endian(bytes_per_packet), // 3
+        to_big_endian(lenchans),         // 4
+        to_big_endian(spec_per_packet),  // 5
+        to_big_endian(bits),             // 6
+        to_big_endian(have_gps),         // 7
+        to_big_endian(gps_week),         // 8
+        to_big_endian(gps_time)          // 9         
     };
     size_t header_bytes_written = 0;
-    size_t elements_written = fwrite(file_header0, sizeof(uint64_t), 8, file);
-    if (elements_written != 8) {
+    size_t elements_written = fwrite(file_header0, sizeof(uint64_t), FH0SIZE, file);
+    if (elements_written != FH0SIZE) {
         perror("Error writing header-preamble to file");
     }
+    #undef FH0SIZE
     header_bytes_written += elements_written * sizeof(uint64_t);
-    double file_header1[] = {
-        to_big_endian_double(lattitude), // 9
-        to_big_endian_double(longitude), // 10
-        to_big_endian_double(elevation), // 11
+    #define FH1SIZE 3
+    double file_header1[FH1SIZE] = {
+        to_big_endian_double(lattitude), // 10
+        to_big_endian_double(longitude), // 11
+        to_big_endian_double(elevation), // 12
     };
-    elements_written = fwrite(file_header1, sizeof(double), 3, file);
-    if (elements_written != 3) {
+    elements_written = fwrite(file_header1, sizeof(double), FH1SIZE, file);
+    if (elements_written != FH1SIZE) {
         perror("Error writing header-gps to file");
     }
+    #undef FH1SIZE
     header_bytes_written += elements_written * sizeof(double);
     elements_written = fwrite(chans, sizeof(uint64_t), (size_t)lenchans, file);
     if (elements_written != (size_t)lenchans) {
@@ -265,7 +249,7 @@ size_t write_header(FILE *file, uint64_t *chans, uint64_t *coeffs, uint64_t lenc
     }
     header_bytes_written += elements_written * sizeof(uint64_t);
     if (header_bytes_written != (size_t)header_bytes) {
-        perror("Error! Header bytes was not correctly computed");
+        fprintf(stderr, "Error! Header bytes was not correctly computed, expected %d instead go %d\n", (int)header_bytes, (int)header_bytes_written);
     }
     return header_bytes_written;
 }
@@ -275,7 +259,7 @@ int get_packets_per_file(config_t* config) {
     // To get the header size, we hack write_header_file and make sure everything is alright
     FILE *null_file = fopen("/dev/null","wb");
     if (null_file == NULL) return -1;
-    size_t header_bytes = write_header(null_file, config->chans, config->coeffs, config->lenchans, config->spec_per_packet, config->bytes_per_packet, config->bits);
+    size_t header_bytes = write_header(null_file, config->chans, config->coeffs, config->version, config->lenchans, config->spec_per_packet, config->bytes_per_packet, config->bits);
     fclose(null_file);
     int n_packets_per_file = ((int)file_size_bytes - (int)header_bytes) / (int)config->bytes_per_packet;
     // config->bytes_per_packet is uint64
@@ -395,7 +379,7 @@ int main() {
         }
 
         // Write the header
-        size_t header_bytes = write_header(file, config.chans, config.coeffs, config.lenchans, config.spec_per_packet, config.bytes_per_packet, config.bits);
+        size_t header_bytes = write_header(file, config.chans, config.coeffs, config.version, config.lenchans, config.spec_per_packet, config.bytes_per_packet, config.bits);
 
         // Capture and write packets_per_file packets
         uint32_t specno_start;
@@ -436,24 +420,6 @@ int main() {
     pcap_close(handle); // Close the handle
     return 0;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
