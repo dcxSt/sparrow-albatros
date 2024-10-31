@@ -13,7 +13,8 @@
 #define MAX_STRING_LENGTH 256 // Define a reasonable limit for strings
 
 
-// Struct for things to parse from config.ini and to write bb file header
+// Struct for things to parse from config.ini plus derived quantities plus digital 
+// gain coefficients. Much is to be written to the binary baseband file header
 typedef struct {
     uint64_t* chans;
     uint64_t* coeffs;
@@ -34,24 +35,32 @@ typedef struct {
 } config_t;
 
 
-void parse_chans(const char* value, config_t* config);
+// Parse string to determine what frequency channels are being sent
+void parse_chans(const char* chans_string, config_t* config);
 
+// Handles parsing of .ini configuration file
 static int my_ini_handler(void* user, const char* section, const char* name, const char* value);
 
+// Read binary file specified at path given by config_t struct variable 
+// containing digital gain coefficients, stores these in this same struct
 int set_coeffs_from_serialized_binary(config_t* pconfig);
 
 uint64_t get_nspec(uint64_t lenchans, uint64_t max_nbyte);
 
+// Parse .ini configuration, derive some other quantities, return those in config_t struct variable
 config_t get_config_from_ini(const char* filename);
 
+// Flip the endianness of 64-bit primitives
 uint64_t to_big_endian(uint64_t value);
-
 double to_big_endian_double(double value);
 
+// Write header of binary file that stores our baseband data
 size_t write_header(FILE *file, uint64_t *chans, uint64_t *coeffs, uint64_t version, uint64_t lenchans, uint64_t spec_per_packet, uint64_t bytes_per_packet, uint64_t bits);
 
+// Figure out how many packets to write to each binary file
 int get_packets_per_file(config_t* config);
 
+// Create a directory at specified path if one doesn't exist already
 int create_directory_if_not_exists(char* path);
 
 

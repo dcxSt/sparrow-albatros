@@ -11,13 +11,12 @@
 #include "ini.h" // Ensure inih is installed
 #include "dump_baseband.h"
 
-// Parse chans in config.ini format (e.g. chans=190:210 220:230)
-// value is the chans string
+// Parse chans in config.ini format (e.g. "chans=190:194 220:222" means [190,191,192,193,220,221])
 // TODO: Fix this!
-void parse_chans(const char* value, config_t* config) {
+void parse_chans(const char* chans_string, config_t* config) {
     // Count the number of ranges (space-separated)
-    char* str_copy = strdup(value); // Copy input string to avoid modifying it
-    char* token = strtok(str_copy, " ");
+    char* chans_strcpy = strdup(chans_string); // Copy input string to avoid modifying it
+    char* token = strtok(chans_strcpy, " ");
     size_t count = 0;
     while (token != NULL) {
         char* colon = strchr(token, ':');
@@ -28,14 +27,15 @@ void parse_chans(const char* value, config_t* config) {
         }
         token = strtok(NULL, " ");
     }
-    free(str_copy);
+    free(chans_strcpy);
     // Allocate memory for chans (and coeffs, because they're going to be the same)
     config->chans = (uint64_t*)malloc(count * sizeof(uint64_t));
     config->coeffs = (uint64_t*)malloc(count * sizeof(uint64_t));
     config->lenchans = (uint64_t)count;
     // Parse the string again to fill chans
-    str_copy = strdup(value);
-    token = strtok(str_copy, " ");
+    chans_strcpy = strdup(chans_string); // deep copy
+    token = strtok(chans_strcpy, " "); // split chans_strcpy into tokens, returns pointer to next token on subsequent calls
+    // Loop to fill chans array with data based on chans_string
     size_t index = 0;
     while (token != NULL) {
         char* colon = strchr(token, ':');
@@ -48,12 +48,12 @@ void parse_chans(const char* value, config_t* config) {
         }
         token = strtok(NULL, " ");
     }
-    free(str_copy);
+    free(chans_strcpy);
 }
 
 // Callback function for parsing the ini file
 static int my_ini_handler(void* user, const char* section, const char* name, const char* value) {
-    config_t* pconfig = (config_t*)user;
+    config_t* pconfig = (config_t*)user; // Init a config_t structure variable; this struct is defined in header file
     if (strcmp(section, "baseband") == 0) {
         if (strcmp(name, "channels") == 0) {
             parse_chans(value, pconfig); // Use custom parser for chans, also defines lenchans
@@ -86,6 +86,8 @@ static int my_ini_handler(void* user, const char* section, const char* name, con
     return 1; // Continue parsing
 }
 
+// Read a binary file, the location of which is provided by the config_t struct
+// Set coeffients based on data read and make pconfig->coeffs point to it
 int set_coeffs_from_serialized_binary(config_t* pconfig) {
     FILE *file = fopen(pconfig->coeffs_binary_path, "rb");
     if (file == NULL) {
@@ -142,6 +144,7 @@ uint64_t get_nspec(uint64_t lenchans, uint64_t max_nbyte) {
     return nspec;
 }
 
+// Read .ini configuration file and populate config_t struct variable with it's contents
 config_t get_config_from_ini(const char* filename) {
     config_t config;
     // Initialize pointers to NULL before allocation
@@ -167,6 +170,7 @@ config_t get_config_from_ini(const char* filename) {
     return config;
 }
 
+// Flip the endiannes of a uint64_t 
 uint64_t to_big_endian(uint64_t value) {
     uint64_t result =
         ((value & 0x00000000000000FF) << 56) |
@@ -180,23 +184,14 @@ uint64_t to_big_endian(uint64_t value) {
     return result;
 }
 
+// Flip the endianness of a double
 double to_big_endian_double(double value) {
     uint64_t temp = *(uint64_t*)&value; // Reinterpret as double 
     uint64_t result = to_big_endian(temp); // to big endian
     return *(double*)&result; // Cast the result back to double
 }
 
-//double to_big_endian_double(double value) {
-//    double result;
-//    uint8_t *value_ptr = (uint8_t*)&value;
-//    uint8_t *result_ptr = (uint8_t*)&result;
-//    // Reverse the byte order
-//    for (int i = 0; i < sizeof(double); i++) {
-//        result_ptr[i] = value_ptr[sizeof(double) - 1 - i];
-//    }
-//    return result;
-//}
-
+// Specifies the format and writes the header of an open, binary file
 size_t write_header(FILE *file, uint64_t *chans, uint64_t *coeffs, uint64_t version, uint64_t lenchans, uint64_t spec_per_packet, uint64_t bytes_per_packet, uint64_t bits) {
     uint64_t have_gps = 1; // bool, 1-true, 0-false
     // Total number of bytes in header, including bytes for header_bytes
@@ -254,6 +249,7 @@ size_t write_header(FILE *file, uint64_t *chans, uint64_t *coeffs, uint64_t vers
     return header_bytes_written;
 }
 
+// Helper to compute number of UDP packets needed to achieve desired file size
 int get_packets_per_file(config_t* config) {
     double file_size_bytes = 1024 * 1024 * 1024 * config->file_size; // double
     // To get the header size, we hack write_header_file and make sure everything is alright
@@ -266,6 +262,7 @@ int get_packets_per_file(config_t* config) {
     return n_packets_per_file;
 }
 
+// Checks if a directory exists at specified path, if not try to create one 
 int create_directory_if_not_exists(char* path) {
     struct stat st = {0};
     // Check if the directory exists
@@ -291,6 +288,7 @@ int main() {
     char filter_exp[] = "udp and dst port 7417 and dst host 10.10.11.99 and src host 192.168.41.10";
     bpf_u_int32 net;
     
+    /////////////////// INIT PACKET SNIFFER ///////////////////
     // Create sniffing device
     handle = pcap_create("eth0", errbuf);
     if (handle == NULL) {
@@ -332,20 +330,23 @@ int main() {
         return 1;
     }
 
+    /////////////////// LOAD CONFIG FOR HEADER AND GET METADATA ///////////////////
     // Parse config.ini
     config_t config = get_config_from_ini(CONFIGINI_PATH);
     // Get coeffs
-
+    // TODO: get coefficients from file
     // TODO: Figure out how much space there is on drive
     // TODO: Figure out how many files we can write to this drive based on how much space there 
     // is on drive, the size of each file, and the drive safety parameter which sets the maximum
     // fullness of the drives
     int n_files_to_write = 500; // dummy
-    // TODO: Figure out how many packets to write per file
-    int packets_per_file = get_packets_per_file(&config);
+    int packets_per_file = get_packets_per_file(&config); // Figure out how many packets to write per file
+    // TODO: log pertinant information
+    // TODO: figure out how to deal with muxing drives, whether to do that in C or have a supervisor bash/python script for this
     printf("packets_per_file: %d\n", packets_per_file);
-    
     uint32_t specno_end_prev_file = 0;
+
+    // Loop through number of packets to write (this is the main loop)
     for (int i = 0; i < n_files_to_write; i++) {
         // Create directory if it doesn't exist
         char timestamp[20]; // big enough to hold the timestamp as a string
@@ -378,7 +379,7 @@ int main() {
             return 1;
         }
 
-        // Write the header
+        // Write the binary file header
         size_t header_bytes = write_header(file, config.chans, config.coeffs, config.version, config.lenchans, config.spec_per_packet, config.bytes_per_packet, config.bits);
 
         // Capture and write packets_per_file packets
@@ -392,7 +393,7 @@ int main() {
                 return 1;
             }
             //printf("Captured a packet with length: %d\n", header.len);
-            // Parse the packet, assumes already filtered correctly
+            // Parse the packet, assumes eth0 traffic already filtered correctly (only accept UDP packets from FPGA going to Sparrow IP)
             // Write the packet to the binary file, use pointer arithmetic to seek payload starting point
             if (i == 0) {
                 memcpy(&specno_start, packet + UDP_PAYLOAD_START, sizeof(uint32_t));
