@@ -200,7 +200,7 @@ class AlbatrosDigitizer(SparrowAlbatros):
         self.initialize_adc()
 
     def tune(self, ref_clock, fftshift, acc_len, dest_ip, 
-            dest_prt, spectra_per_packet, bytes_per_spectrum):
+            dest_prt, spectra_per_packet, bytes_per_spectrum, dest_mac:int=0):
         """
         Setup the FPGA firmware by tuning the input registers.
         Perform sanity check on each after setting the value. 
@@ -250,6 +250,8 @@ class AlbatrosDigitizer(SparrowAlbatros):
         self.cfpga.registers.packetiser_spectra_per_packet.write_int(spectra_per_packet)
         self.logger.info(f"Set bytes-per-spectrum to {bytes_per_spectrum}")
         self.cfpga.registers.packetiser_bytes_per_spectrum.write_int(bytes_per_spectrum)
+        self.logger.info(f"Setting destination MAC address to {dest_mac}")
+        # TODO: set destination MAC address
         self.logger.info(f"Set destination IP address and port to {dest_ip}:{dest_prt}")
         self.cfpga.registers.dest_ip.write_int(str2ip(dest_ip))
         self.cfpga.registers.dest_prt.write_int(dest_prt)
