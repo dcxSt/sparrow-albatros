@@ -1,3 +1,5 @@
+:warning: This fork is no longer being developed or maintained. Find the up-to-date version here: [https://github.com/ALBATROS-Experiment/sparrow-albatros/](https://github.com/ALBATROS-Experiment/sparrow-albatros/)
+
 # sparrow-albatros
 A repository for ALBATROS firmware targetting the Sparrow FPGA board
 
